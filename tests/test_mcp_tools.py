@@ -1,8 +1,8 @@
 import pytest
 
 from core import storage
-from mcp_server.server import mcp, setup_tools
 from mcp_server import tools
+from mcp_server.server import mcp, setup_tools
 
 
 @pytest.fixture()

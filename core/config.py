@@ -26,7 +26,9 @@ class Config:
     MCP_PORT: int = int(os.getenv("MCP_PORT", "5000"))
 
     # Feature flags
-    ENABLE_SESSION_COMPACTION: bool = os.getenv("ENABLE_SESSION_COMPACTION", "False").lower() == "true"
+    ENABLE_SESSION_COMPACTION: bool = (
+        os.getenv("ENABLE_SESSION_COMPACTION", "False").lower() == "true"
+    )
     MAX_BRIEFING_TOKENS: int = int(os.getenv("MAX_BRIEFING_TOKENS", "4000"))
     ENABLE_REDACTION: bool = os.getenv("ENABLE_REDACTION", "True").lower() == "true"
 

@@ -1,0 +1,23 @@
+# lefthook.yml
+
+
+pre-push:
+  parallel: true
+  jobs:
+
+    # Run ruff linter for all Python files
+    - run: python3 -m uv run ruff check .
+      glob:
+        - "*.py"
+    
+    # core and mcp tests
+    - run: python3 -m uv run pytest
+      glob:
+        - "*.py"
+    
+    # Run Django tests
+    - run: cd api && python3 manage.py test
+      glob:
+        - "api/**/*.py"
+
+    

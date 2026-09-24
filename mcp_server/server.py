@@ -1,5 +1,6 @@
 """FastMCP server for contextkit."""
 import logging
+
 from fastmcp import FastMCP
 
 logger = logging.getLogger(__name__)

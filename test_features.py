@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 """Test validation, redaction, and error handling features."""
 import asyncio
-from core import services, redaction, validation
+
+from core import redaction, services, validation
 
 
 def test_redaction():

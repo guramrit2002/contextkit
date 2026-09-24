@@ -36,7 +36,7 @@ class SecretRedactor:
                     redacted,
                     flags=re.IGNORECASE | re.MULTILINE,
                 )
-            except re.error as e:
+            except re.error:
                 # Log but don't fail on invalid patterns
                 continue
 

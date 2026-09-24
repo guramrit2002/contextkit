@@ -1,7 +1,7 @@
 """SQLAlchemy models for contextkit database."""
 from datetime import UTC, datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, String, Text, create_engine
+from sqlalchemy import Column, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import declarative_base, relationship
 
 from core.config import config
@@ -33,7 +33,12 @@ class Project(Base):
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     decisions = relationship("Decision", back_populates="project", cascade="all, delete-orphan")
-    state = relationship("State", back_populates="project", uselist=False, cascade="all, delete-orphan")
+    state = relationship(
+        "State",
+        back_populates="project",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
     sessions = relationship("Session", back_populates="project", cascade="all, delete-orphan")
 
 

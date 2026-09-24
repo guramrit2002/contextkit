@@ -2,6 +2,7 @@
 import logging
 
 from core.db_init import initialize_database
+
 from .server import mcp, setup_tools
 
 logging.basicConfig(level=logging.INFO)
