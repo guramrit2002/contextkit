@@ -1,0 +1,184 @@
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                  SECURITY FEATURES IMPLEMENTATION LOCATIONS                   ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 1. SECRET REDACTION (core/redaction.py)                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Lines 10-22:   Regex patterns for API keys, AWS credentials, GitHub tokens  │
+│ Lines 25-43:   SecretRedactor.redact() - Main redaction function            │
+│ Lines 45-61:   SecretRedactor.redact_dict() - Recursive dict redaction      │
+│ Lines 64-97:   Validation helpers used by services                          │
+│                                                                              │
+│ APPLIED IN: core/services.py                                                │
+│  • Line 49-52:  log_decision() - redacts decision/reasoning                │
+│  • Line 82-85:  update_state() - redacts progress/blockers                 │
+│  • Line 112-115: log_session() - redacts summary                           │
+│                                                                              │
+│ TESTED IN: test_features.py                                                 │
+│  • Lines 12-29: test_redaction() - verifies secret detection                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 2. INPUT VALIDATION (core/validation.py)                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Lines 7-11:    validate_get_context_input() - 500 char limit               │
+│ Lines 14-26:   validate_log_decision_input() - 5K/10K limits               │
+│ Lines 29-39:   validate_update_state_input() - 10K limits                  │
+│ Lines 42-48:   validate_log_session_input() - 10K/5K limits                │
+│ Lines 51-58:   validate_export_markdown_input() - 500 char limits          │
+│                                                                              │
+│ HELPER FUNCTIONS (core/redaction.py):                                       │
+│  • Lines 64-78:  validate_project_id() - type/format/length checks         │
+│  • Lines 81-97:  validate_text() - type/empty/length checks                │
+│                                                                              │
+│ APPLIED IN: core/services.py                                                │
+│  • Line 27-30:   get_briefing() - validates project_id                     │
+│  • Line 43-45:   log_decision() - validates all inputs                     │
+│  • Line 77-79:   update_state() - validates all inputs                     │
+│  • Line 105-107: log_session() - validates all inputs                      │
+│  • Line 129-130: export_markdown() - validates all inputs                  │
+│                                                                              │
+│ TESTED IN: test_features.py                                                 │
+│  • Lines 37-55: test_validation() - verifies all validators                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 3. ERROR HANDLING (core/errors.py + core/services.py)                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ EXCEPTION HIERARCHY (core/errors.py):                                       │
+│  • Line 4:   ContextKitError (base)                                        │
+│  • Line 10:  ProjectNotFoundError                                          │
+│  • Line 16:  InvalidProjectIdError                                         │
+│  • Line 22:  StorageError                                                  │
+│  • Line 28:  BriefingError                                                 │
+│  • Line 34:  ValidationError                                               │
+│                                                                              │
+│ TRY-EXCEPT WRAPPERS (core/services.py):                                     │
+│  • Lines 26-64:   get_briefing() - try/except with logging                │
+│  • Lines 39-64:   log_decision() - try/except with logging                │
+│  • Lines 67-100:  update_state() - try/except with logging                │
+│  • Lines 103-125: log_session() - try/except with logging                 │
+│  • Lines 128-138: export_markdown() - try/except with logging             │
+│                                                                              │
+│ LOGGING:                                                                     │
+│  • Line 9:   logger = logging.getLogger(__name__)                          │
+│  • Line 30:  logger.error(f"Failed to get briefing: {e}")                 │
+│  • Line 63:  logger.error(f"Failed to log decision: {e}")                 │
+│  • Similar on lines 98, 123, 137                                           │
+│                                                                              │
+│ TESTED IN: test_features.py                                                 │
+│  • Lines 98-108: test_integration() - verifies error rejection              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 4. SQL INJECTION PROTECTION (core/storage.py)                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ PARAMETERIZED QUERIES (using SQLAlchemy ORM):                               │
+│                                                                              │
+│  • Lines 95-101: SELECT decisions with parameterized where()               │
+│    select(Decision).where(Decision.project_id == project_id)              │
+│                                                                              │
+│  • Lines 104-105: SELECT state with parameterized where()                  │
+│    select(State).where(State.project_id == project_id)                    │
+│                                                                              │
+│  • Lines 169-177: INSERT decision via ORM (no raw SQL)                    │
+│    Decision(id=..., project_id=..., decision=...)                         │
+│                                                                              │
+│  • Lines 209-220: UPDATE state via ORM (no raw SQL)                       │
+│    state.progress = progress                                               │
+│    state.next_steps = next_steps                                           │
+│                                                                              │
+│  • Lines 270-279: INSERT session via ORM (no raw SQL)                     │
+│    SessionModel(id=..., project_id=..., summary=...)                      │
+│                                                                              │
+│ BENEFITS OF SQLALCHEMY ORM:                                                 │
+│  ✓ Automatically escapes all parameters                                    │
+│  ✓ No string concatenation in queries                                      │
+│  ✓ Type-safe column references                                             │
+│  ✓ Foreign key constraints enforced                                        │
+│  ✓ Atomic transactions                                                      │
+│                                                                              │
+│ TESTED IN: test_db.py                                                       │
+│  • All CRUD operations verify parameterized queries work                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 5. TYPE SAFETY (core/models.py + mcp_server/tools.py)                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ DATABASE MODELS (core/models.py):                                           │
+│  • Lines 15-30:   Project model - all columns typed (String, DateTime)    │
+│  • Lines 33-41:   Decision model - text columns, foreign keys             │
+│  • Lines 44-58:   State model - unique constraint on project_id           │
+│  • Lines 61-73:   Session model - all required fields typed               │
+│                                                                              │
+│ MCP TOOL SCHEMAS (mcp_server/tools.py):                                     │
+│  • Lines 9-17:    GetContextInput - optional String                       │
+│  • Lines 20-31:   LogDecisionInput - required strings                     │
+│  • Lines 34-46:   UpdateStateInput - required strings                     │
+│  • Lines 49-57:   LogSessionInput - required string                       │
+│  • Lines 60-66:   ExportMarkdownInput - optional strings                  │
+│                                                                              │
+│ PYDANTIC VALIDATION:                                                        │
+│  ✓ Automatic type coercion and validation                                 │
+│  ✓ Rejects invalid types at API boundary                                  │
+│  ✓ Provides clear error messages                                          │
+│  ✓ Generates OpenAPI schema                                               │
+│                                                                              │
+│ TESTED IN: test_db.py + test_features.py                                    │
+│  • Type mismatches are caught immediately                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                            SECURITY DATA FLOW                                 ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+   User Input (via MCP Tool)
+           ↓
+   ┌─────────────────────────────┐
+   │  VALIDATION LAYER           │  ← core/validation.py (Lines 7-52)
+   │  • Type checking            │
+   │  • Length limits            │
+   │  • Format validation        │
+   └─────────────────────────────┘
+           ↓
+   ┌─────────────────────────────┐
+   │  REDACTION LAYER            │  ← core/redaction.py (Lines 10-43)
+   │  • API keys → [REDACTED]    │
+   │  • AWS AKIA → [REDACTED]    │
+   │  • Tokens → [REDACTED]      │
+   │  • Passwords → [REDACTED]   │
+   └─────────────────────────────┘
+           ↓
+   ┌─────────────────────────────┐
+   │  ERROR HANDLING             │  ← core/services.py (Try-Except)
+   │  • Catch exceptions         │     + core/errors.py (Custom types)
+   │  • Log errors               │
+   │  • Propagate safely         │
+   └─────────────────────────────┘
+           ↓
+   ┌─────────────────────────────┐
+   │  STORAGE LAYER              │  ← core/storage.py
+   │  • SQLAlchemy ORM           │
+   │  • Parameterized queries    │
+   │  • Type-safe inserts        │
+   └─────────────────────────────┘
+           ↓
+   Database (Redacted & Safe)
+
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                          QUICK REFERENCE TABLE                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+Feature              | Location                      | Lines    | Status
+──────────────────────────────────────────────────────────────────────────────
+Secret Redaction     | core/redaction.py             | 10-61    | ✅ Active
+Input Validation     | core/validation.py            | 7-52     | ✅ Active
+Error Handling       | core/errors.py                | 1-37     | ✅ Active
+                     | core/services.py              | 26-138   | ✅ Active
+SQL Injection Proof  | core/storage.py               | 95-177   | ✅ Active
+Type Safety          | core/models.py                | 15-73    | ✅ Active
+                     | mcp_server/tools.py           | 9-66     | ✅ Active
+Testing              | test_features.py              | 12-108   | ✅ Passing
+

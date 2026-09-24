@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "contextkit"
+version = "0.1.0"
+description = "Shared project context for every AI coding agent you use"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [
+    {name = "contextkit team", email = "guramrit1066@gmail.com"}
+]
+
+dependencies = [
+    "fastmcp>=0.1.0",
+    "pydantic>=2.0",
+    "sqlalchemy>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-asyncio>=0.21.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0",
+]
+
+backend = [
+    "django>=4.2",
+    "djangorestframework>=3.14",
+    "python-dotenv>=1.0",
+]
+
+[project.urls]
+Repository = "https://github.com/anthropics/contextkit"
+Documentation = "https://github.com/anthropics/contextkit"
+
+[tool.setuptools]
+packages = ["core", "mcp_server", "api"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+addopts = "--cov=core --cov=mcp_server --cov-report=term-missing"
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["core", "mcp_server", "api"]
