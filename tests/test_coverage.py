@@ -1,11 +1,10 @@
 """Comprehensive tests for 100% code coverage."""
-import os
-import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
 from datetime import datetime
+from pathlib import Path
 
-from core import config, errors, schemas, storage, services, validation, redaction
+import pytest
+
+from core import config, errors, redaction, schemas, services, storage, validation
 from core.db_init import initialize_database
 from mcp_server import server, tools
 from mcp_server.__main__ import *  # noqa: F401, F403
@@ -263,8 +262,17 @@ def test_redact_dict():
         "list": ["item1", "AKIA1234567890123456"],
     }
     redacted = redaction.SecretRedactor.redact_dict(data)
-    assert "[REDACTED]" in str(redacted["api_key"]).upper() or redacted["api_key"] == "api_key=[REDACTED]"
-    assert "[REDACTED]" in str(redacted["nested"]["password"]).upper() or "[REDACTED]" in redacted["nested"]["password"]
+    api_key_redacted = (
+        "[REDACTED]" in str(redacted["api_key"]).upper()
+        or redacted["api_key"] == "api_key=[REDACTED]"
+    )
+    assert api_key_redacted
+    password_field = redacted["nested"]["password"]
+    password_redacted = (
+        "[REDACTED]" in str(password_field).upper()
+        or "[REDACTED]" in password_field
+    )
+    assert password_redacted
     assert redacted["key1"] == "value1"
 
 
@@ -449,7 +457,7 @@ def test_initialize_database(tmp_path, monkeypatch):
 
 def test_initialize_database_creates_tables(isolated_db):
     """Test database initialization creates tables."""
-    from sqlalchemy import inspect, create_engine
+    from sqlalchemy import create_engine, inspect
 
     db_path = f"sqlite:///{isolated_db}"
     engine = create_engine(db_path)
@@ -695,7 +703,7 @@ def test_db_init_creates_all_tables(tmp_path, monkeypatch):
     from core.db_init import initialize_database as init_db
     init_db()
 
-    from sqlalchemy import inspect, create_engine
+    from sqlalchemy import create_engine, inspect
     engine = create_engine(f"sqlite:///{db_path}")
     inspector = inspect(engine)
 
@@ -805,14 +813,14 @@ async def test_export_markdown_with_complex_content(isolated_db, tmp_path):
 async def test_multiple_projects_isolation(isolated_db):
     """Test that multiple projects' data is isolated."""
     # Create context for project 1
-    d1 = await services.log_decision(
+    await services.log_decision(
         project_id="project-1",
         decision="Project 1 decision",
         reasoning="Reasoning 1",
     )
 
     # Create context for project 2
-    d2 = await services.log_decision(
+    await services.log_decision(
         project_id="project-2",
         decision="Project 2 decision",
         reasoning="Reasoning 2",
