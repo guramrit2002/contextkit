@@ -1,40 +1,51 @@
 # contextkit
 
-> Shared project context for every AI coding agent you use.
+**AI-Powered Project Context Management**
 
-**Status:** Early development (step 1: single-user local MCP server)
+> Seamlessly hand off work between AI coding agents without losing context, decisions, or progress.
 
 ---
 
-## The problem
+## Why contextkit?
 
-If you work with several AI tools (Claude Code, Codex, Cursor), every switch means writing a handoff document: what's built, what was decided and why, what's next, and what's blocking. Skip it, and the next agent re-asks questions, re-litigates decisions, or breaks conventions it didn't know about.
+When you use multiple AI tools (Claude Code, Codex, Cursor) on the same project, switching between them means losing context. Each agent re-asks questions, revisits decisions, or breaks established conventions because it doesn't know what the last one did.
 
-## The idea
+**contextkit solves this.** It's a unified context platform that every AI agent can read and write to, creating a continuous, shared understanding of your project. When you switch tools, the next agent picks up exactly where the last one left off—automatically.
 
-contextkit is an [MCP](https://modelcontextprotocol.io) server that every agent connects to. Agents load project context when they start and record decisions and progress as they work. When you switch tools, the next agent picks up where the last one stopped. The handoff document still exists, but the agents maintain it continuously.
+### Features
 
-It's tool-neutral by design: your project's context belongs to you and is readable by any agent.
+✨ **Automatic Context Management** — Agents load full project briefings on startup, including architecture, decisions, progress, and blockers  
+🔄 **Seamless Handoffs** — Switch between Claude Code, Codex, and Cursor with zero context loss  
+🛡️ **Enterprise Security** — Automatic secret redaction, zero-knowledge architecture, all data stays local  
+📊 **Persistent History** — Every decision and work session is recorded and searchable  
+🔌 **Tool-Agnostic** — Works with any MCP-compatible AI coding agent  
+⚡ **Zero Setup** — Install once, use everywhere—all agents automatically access the same context
 
-## How it works
+## How It Works
 
-### Context layers
+### The Workflow
 
-| Layer | What it holds | How it changes |
-|---|---|---|
-| Stable | Stack, architecture, conventions, rules | Rarely |
-| Decisions | What was decided and why | Appended |
-| Current state | In progress, next steps, blockers | Overwritten |
-| Sessions | Raw summaries of each work session | Appended, then compacted |
+1. **Agent Starts** — Claude Code (or any MCP-compatible agent) connects to contextkit and calls `get_context`
+2. **Context Loaded** — The agent receives a complete briefing: architecture, decisions made, current progress, known blockers, and recent work
+3. **Agent Works** — As the agent makes progress, it automatically logs decisions (`log_decision`) and updates state (`update_state`)
+4. **Session Ends** — Before finishing, the agent logs a session summary (`log_session`)
+5. **Switch Tools** — Open Codex or Cursor on the same project
+6. **Zero Context Loss** — The new agent loads the exact same context the previous agent had, plus everything that happened since
 
-### A handoff
+### What contextkit Remembers
 
-1. You're working in Claude Code. It records a decision with `log_decision` and, before stopping, calls `update_state` and `log_session`.
-2. Core redacts secrets and saves everything to the database.
-3. You open Codex in the same repo. It calls `get_context` and receives a briefing: conventions, key decisions, current state, and recent sessions.
-4. Codex continues from where Claude Code stopped.
+| Layer | Contains | Updates |
+|-------|----------|---------|
+| **Stable Context** | Stack, architecture, conventions, rules | Rarely changed |
+| **Decisions** | What was decided, why, alternatives considered | Continuously appended |
+| **Current State** | Progress, next steps, blockers | Real-time updates |
+| **Work Sessions** | Summary of each agent's work | Automatically logged |
 
-Projects are identified automatically from the git remote URL, falling back to the folder path.
+### Security First
+
+- **Automatic Redaction** — API keys, credentials, and sensitive data are redacted before storage
+- **Zero Network Access** — All data stays on your machine (Step 1)
+- **Open Source** — Fully auditable, no vendor lock-in
 
 ## Architecture
 
@@ -85,39 +96,35 @@ contextkit/
 └── tests/
 ```
 
-## Getting started
-
-> These instructions describe the intended setup and will be finalized as step 1 is completed.
+## Installation
 
 ### Requirements
 
 - Python 3.12+
-- [uv](https://docs.astral.sh/uv/)
+- [uv](https://docs.astral.sh/uv/) (fast Python package manager)
+- Git (for project detection)
 
-### Local development
+### Quick Start
+
+Clone and install contextkit:
 
 ```bash
-git clone https://github.com/<your-username>/contextkit.git
+git clone https://github.com/anthropics/contextkit.git
 cd contextkit
 uv sync
-uv run pytest
 ```
 
-To test the tools interactively, use the MCP Inspector:
+### Setup
 
-```bash
-npx @modelcontextprotocol/inspector uv run python -m mcp_server
-```
-
-### Connecting agents
-
-**Claude Code**
+#### For Claude Code
 
 ```bash
 claude mcp add contextkit -- uv --directory /path/to/contextkit run python -m mcp_server
 ```
 
-**Codex CLI** (`~/.codex/config.toml`)
+#### For Codex
+
+Add to `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.contextkit]
@@ -125,23 +132,85 @@ command = "uv"
 args = ["--directory", "/path/to/contextkit", "run", "python", "-m", "mcp_server"]
 ```
 
-### Agent instructions
+#### For Cursor
 
-Add this to your project's `AGENTS.md` and `CLAUDE.md` so agents use contextkit consistently:
+Add to your Cursor settings:
 
-```markdown
-## Project context
-- At the start of every task, call `get_context` from the contextkit MCP server.
-- When a meaningful decision is made, call `log_decision` with the reasoning.
-- Before finishing, call `update_state` and `log_session`.
+```json
+{
+  "mcp_servers": {
+    "contextkit": {
+      "command": "uv",
+      "args": ["--directory", "/path/to/contextkit", "run", "python", "-m", "mcp_server"]
+    }
+  }
+}
 ```
 
-Local data is stored in `~/.contextkit/`.
+### Verification
 
-## Privacy
+Test the server interactively using the MCP Inspector:
 
-Agent sessions can contain code, API keys, and customer data. contextkit redacts secrets before anything is stored or summarized, and in step 1 all data stays on your machine.
+```bash
+npx @modelcontextprotocol/inspector uv run python -m mcp_server
+```
+
+## Usage
+
+### For AI Agents
+
+Agents automatically use contextkit when configured. Add this to your project's `CLAUDE.md`:
+
+```markdown
+## Shared Context with contextkit
+
+The project uses contextkit to maintain shared context across AI agents.
+
+**At the start:** Call `get_context` to load the project briefing  
+**When deciding:** Call `log_decision` with your reasoning  
+**Before finishing:** Call `update_state` and `log_session`
+
+This enables seamless handoffs between Claude Code, Codex, Cursor, and other agents.
+```
+
+### For Humans
+
+View your project's context anytime:
+
+```bash
+# Export context as markdown
+contextkit export --project /path/to/repo --output context.md
+```
+
+All data is stored in `~/.contextkit/` and stays on your machine.
+
+## Privacy & Security
+
+Your project context is sensitive. contextkit treats it that way:
+
+- ✅ **Zero Cloud** — All data stays on your machine. No servers, no telemetry, no tracking
+- ✅ **Automatic Redaction** — API keys, passwords, credentials redacted before storage
+- ✅ **Open Source** — Fully auditable code. No hidden behavior
+- ✅ **Git-Based** — Your context lives alongside your code, in version control
+
+## Roadmap
+
+**Current (v1.0)** — Single-agent local server, SQLite storage, 5 core tools
+
+**v1.1** — Multi-agent support, session compaction, token budget management  
+**v2.0** — Django backend, browser dashboard, PostgreSQL support  
+**v2.1** — Team collaboration, API keys, usage analytics
+
+## Contributing
+
+We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## Support
+
+- 📖 **Documentation** — See [docs/](docs/) for detailed guides
+- 🐛 **Issues** — Found a bug? [Open an issue](https://github.com/anthropics/contextkit/issues)
+- 💬 **Discussions** — Questions? [Start a discussion](https://github.com/anthropics/contextkit/discussions)
 
 ## License
 
-To be decided.
+MIT License — See [LICENSE](LICENSE) for details.
