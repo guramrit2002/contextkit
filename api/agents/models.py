@@ -42,4 +42,4 @@ class ApiKey(models.Model):
         db_table = "api_keys"
 
     def __str__(self) -> str:
-        return f"key for {self.agent_id}"
+        return f"key for {self.agent.id}"
