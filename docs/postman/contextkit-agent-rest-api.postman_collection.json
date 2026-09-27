@@ -1,0 +1,358 @@
+{
+  "info": {
+    "name": "contextkit — Agent REST API",
+    "_postman_id": "6f1c2a8e-3b4d-4e5f-9a1b-2c3d4e5f6a7b",
+    "description": "The MCP tools over HTTP for agents without MCP support (ADR 024).\n\nSetup:\n1. From api/: `python3 -m uv run --extra backend python manage.py migrate`\n2. Issue a key: `python3 -m uv run --extra backend python manage.py create_client --project-id <project> --name <name>`\n3. Run the server: `python3 -m uv run --extra backend python manage.py runserver`\n4. Set the collection variables `apiKey` (the printed key) and `projectId` (the same --project-id).\n\nEvery request sends `Authorization: Bearer {{apiKey}}` (collection-level auth). `project_id` is optional everywhere: omitted means the client's assigned project; any other project returns 403.\n\nErrors: 401 missing/invalid key, 403 other project, 400 invalid input, 500 unexpected (details only in the audit log).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      { "key": "token", "value": "{{apiKey}}", "type": "string" }
+    ]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://127.0.0.1:8000/api/agent/v1/context", "type": "string" },
+    { "key": "apiKey", "value": "ck_paste_the_key_from_create_client", "type": "string" },
+    { "key": "projectId", "value": "my-project", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Context",
+      "description": "Happy-path calls, one per MCP tool.",
+      "item": [
+        {
+          "name": "Get briefing (get_context)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('briefing for assigned project', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.project.id).to.eql(pm.collectionVariables.get('projectId'));",
+                  "  pm.expect(body).to.have.keys('project', 'decisions', 'current_state', 'recent_sessions');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/briefing/",
+              "host": ["{{baseUrl}}"],
+              "path": ["briefing", ""],
+              "query": [
+                { "key": "project_id", "value": "{{projectId}}", "description": "Optional; defaults to the client's project", "disabled": true }
+              ]
+            },
+            "description": "Project briefing: project, decisions, current_state, recent_sessions (last 10). Each decision/session includes the client_id that wrote it."
+          }
+        },
+        {
+          "name": "Log decision (log_decision)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('returns decision id', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.success).to.be.true;",
+                  "  pm.expect(body.decision_id).to.be.a('string');",
+                  "  pm.collectionVariables.set('lastDecisionId', body.decision_id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"Use PostgreSQL for the hosted deployment\",\n  \"reasoning\": \"Concurrent writers from many agents; SQLite allows one writer at a time\",\n  \"alternatives_considered\": \"SQLite with WAL, MySQL\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/decisions/",
+              "host": ["{{baseUrl}}"],
+              "path": ["decisions", ""]
+            },
+            "description": "Body: decision (required, max 5000), reasoning (required, max 10000), alternatives_considered (optional), project_id (optional). Secrets are redacted before storage."
+          }
+        },
+        {
+          "name": "Update state (update_state)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('returns updated_at', () => pm.expect(pm.response.json().updated_at).to.be.a('string'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"progress\": \"REST API endpoints implemented and tested\",\n  \"next_steps\": \"Open PR into dev\",\n  \"blockers\": null\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/state/",
+              "host": ["{{baseUrl}}"],
+              "path": ["state", ""]
+            },
+            "description": "Replaces the project's current state. Body: progress, next_steps (required), blockers (optional), project_id (optional)."
+          }
+        },
+        {
+          "name": "Log session (log_session)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('returns session id', () => pm.expect(pm.response.json().session_id).to.be.a('string'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"summary\": \"Built the agent REST API and ran it end to end with curl\",\n  \"decisions_made\": \"Separate /api/agent/v1/ prefix from user APIs\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sessions/",
+              "host": ["{{baseUrl}}"],
+              "path": ["sessions", ""]
+            },
+            "description": "Appends a work-session summary. Body: summary (required), decisions_made (optional), project_id (optional)."
+          }
+        },
+        {
+          "name": "Export markdown (export_markdown)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('markdown content with size', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.format).to.eql('markdown');",
+                  "  pm.expect(body.content).to.include('# Project Context');",
+                  "  pm.expect(body.size_bytes).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"format\": \"markdown\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/export/",
+              "host": ["{{baseUrl}}"],
+              "path": ["export", ""]
+            },
+            "description": "Full context as markdown. Body: format (only \"markdown\"), project_id (optional). Returns content and size_bytes."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Errors",
+      "description": "Expected failures. Each one is also written to audit_log (except 400s from missing fields).",
+      "item": [
+        {
+          "name": "401 — missing API key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));",
+                  "pm.test('Bearer challenge', () => pm.expect(pm.response.headers.get('WWW-Authenticate')).to.match(/^Bearer/));",
+                  "pm.test('message', () => pm.expect(pm.response.json().detail).to.eql('API key is required'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/briefing/",
+              "host": ["{{baseUrl}}"],
+              "path": ["briefing", ""]
+            }
+          }
+        },
+        {
+          "name": "401 — invalid API key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));",
+                  "pm.test('message', () => pm.expect(pm.response.json().detail).to.eql('Invalid API key'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "ck_this_key_does_not_exist", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/briefing/",
+              "host": ["{{baseUrl}}"],
+              "path": ["briefing", ""]
+            }
+          }
+        },
+        {
+          "name": "403 — another project",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403', () => pm.response.to.have.status(403));",
+                  "pm.test('names the project', () => pm.expect(pm.response.json().detail).to.include('not-my-project'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"project_id\": \"not-my-project\",\n  \"decision\": \"Try to write elsewhere\",\n  \"reasoning\": \"Should be denied\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/decisions/",
+              "host": ["{{baseUrl}}"],
+              "path": ["decisions", ""]
+            }
+          }
+        },
+        {
+          "name": "400 — missing required field",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('field error', () => pm.expect(pm.response.json()).to.have.property('reasoning'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"No reasoning given\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/decisions/",
+              "host": ["{{baseUrl}}"],
+              "path": ["decisions", ""]
+            }
+          }
+        },
+        {
+          "name": "400 — unsupported export format",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"format\": \"pdf\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/export/",
+              "host": ["{{baseUrl}}"],
+              "path": ["export", ""]
+            }
+          }
+        },
+        {
+          "name": "405 — wrong method",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('405', () => pm.response.to.have.status(405));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/decisions/",
+              "host": ["{{baseUrl}}"],
+              "path": ["decisions", ""]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
