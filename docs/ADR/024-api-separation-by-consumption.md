@@ -20,7 +20,7 @@ A single monolithic API endpoint would force compromises. Separation clarifies i
 
 ## Decision
 
-### Three API tiers
+### API tiers
 
 #### Tier 1: User APIs (Django REST)
 
@@ -102,6 +102,37 @@ log_session(project_id, summary, decisions_made)
 export_markdown(project_id, output_path)
 ```
 
+#### Tier 4: Agent REST APIs (Django REST, API key)
+
+**Endpoint:** `/api/agent/v1/context/`  
+**Transport:** HTTPS, served by Django  
+**Auth:** Same agent API key as MCP (`Authorization: Bearer <key>`), always required  
+**Rate limit:** Deferred (same as MCP)  
+**Contract:** Versioned (`/api/agent/v1/`)  
+**Latency:** Same target as MCP
+
+**Purpose:** The MCP tools over plain HTTP, for agents and scripts in environments without
+MCP support (CI jobs, webhooks, serverless functions, CLIs).
+
+**Endpoints:**
+```
+GET    /api/agent/v1/context/briefing/     ← get_context
+POST   /api/agent/v1/context/decisions/    ← log_decision
+POST   /api/agent/v1/context/state/        ← update_state
+POST   /api/agent/v1/context/sessions/     ← log_session
+POST   /api/agent/v1/context/export/       ← export_markdown
+```
+
+**Rules:**
+- Separate prefix from User APIs (`/api/v1/`) so the two auth schemes never share a route
+  and each tier can be routed, rate-limited, and firewalled independently.
+- Views are thin: authenticate with `core.auth`, then one `core.services` call through
+  `core.auth.run_as_agent`, which enforces the agent's project and writes the audit row.
+  Same checks and same audit trail as MCP; Django never writes context tables itself.
+- Unlike MCP over stdio, there is no keyless local mode: a missing key is always 401.
+- Errors: 401 missing/invalid key, 403 other project, 400 invalid input, 500 otherwise
+  (details stay in the audit log, never in the response).
+
 ---
 
 ## URL Structure
@@ -118,6 +149,9 @@ contextkit/
 │   ├── audit/
 │   ├── summarize/
 │   └── health/
+├── /api/agent/v1/context/          ← Agent REST APIs (Django, agent API key)
+│   ├── briefing/  decisions/  state/
+│   └── sessions/  export/
 ├── /mcp                            ← MCP server (FastMCP)
 │   └── (stdio or HTTP stream)
 └── /admin/                         ← Django admin (not exposed publicly)
@@ -320,6 +354,7 @@ urlpatterns = [
 | User | Any authenticated user | JWT/session | User owns resource |
 | Platform | Only backend services | SERVICE_SECRET | Service identity |
 | MCP | Only agents | API key | Agent assigned to project |
+| Agent REST | Only agents (non-MCP) | API key | Agent assigned to project |
 
 ---
 
