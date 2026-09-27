@@ -26,12 +26,12 @@ def _resolve(env_var: str, default: str) -> Path:
 
 def resolve_db_path() -> Path:
     """Core's database: projects, decisions, state, sessions, audit_log."""
-    return _resolve("CONTEXTKIT_DB_PATH", "db.sqlite3")
+    return _resolve("CONTEXTKIT_DB_PATH", "core.sqlite3")
 
 
 def resolve_django_db_path() -> Path:
     """Django's database: clients, api_keys, auth. Core opens it read-only to verify keys."""
-    return _resolve("DJANGO_DB_PATH", "api/db.sqlite3")
+    return _resolve("DJANGO_DB_PATH", "api/django.sqlite3")
 
 
 class Config:

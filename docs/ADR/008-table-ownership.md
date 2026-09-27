@@ -27,8 +27,8 @@ Core and Django no longer share one SQLite file locally:
 
 | Database | Setting | Default | Tables |
 |---|---|---|---|
-| Core | `CONTEXTKIT_DB_PATH` | `./db.sqlite3` | projects, decisions, state, sessions, audit_log |
-| Django | `DJANGO_DB_PATH` | `./api/db.sqlite3` | clients, api_keys, auth_*, django_* |
+| Core | `CONTEXTKIT_DB_PATH` | `./core.sqlite3` | projects, decisions, state, sessions, audit_log |
+| Django | `DJANGO_DB_PATH` | `./api/django.sqlite3` | clients, api_keys, auth_*, django_* |
 
 Relative paths resolve from the repo root (`core.config`), and Django's settings use the same
 resolver, so every process opens the same files regardless of its working directory.
