@@ -2,7 +2,7 @@
 Agent context REST API: the MCP tools over HTTP for clients without MCP.
 
 Each view validates the request shape and makes one core.services call through
-core.auth.run_as_agent, which enforces the agent's project and writes the audit row.
+core.auth.run_as_client, which enforces the client's project and writes the audit row.
 """
 import logging
 
@@ -15,10 +15,10 @@ from rest_framework.response import Response
 from rest_framework.serializers import Serializer
 from rest_framework.views import APIView
 
-from agents.authentication import AgentKeyAuthentication
+from clients.authentication import ClientKeyAuthentication
 from context import serializers
 from core import services
-from core.auth import run_as_agent
+from core.auth import run_as_client
 from core.errors import AuthorizationError
 from core.errors import ValidationError as CoreValidationError
 
@@ -31,8 +31,8 @@ class ServiceFailed(APIException):
     default_code = "service_error"
 
 
-class AgentContextView(APIView):
-    authentication_classes = [AgentKeyAuthentication]
+class ContextApiView(APIView):
+    authentication_classes = [ClientKeyAuthentication]
     permission_classes = [IsAuthenticated]
     renderer_classes = [JSONRenderer]
     audit_tool_name: str
@@ -45,8 +45,8 @@ class AgentContextView(APIView):
 
     def run(self, request, project_id, operation):
         try:
-            return async_to_sync(run_as_agent)(
-                self.audit_tool_name, request.agent_context, project_id, operation
+            return async_to_sync(run_as_client)(
+                self.audit_tool_name, request.client_context, project_id, operation
             )
         except AuthorizationError as exc:
             raise PermissionDenied(str(exc)) from exc
@@ -58,7 +58,7 @@ class AgentContextView(APIView):
             raise ServiceFailed() from exc
 
 
-class GetBriefingView(AgentContextView):
+class GetBriefingView(ContextApiView):
     audit_tool_name = "get_context"
     request_serializer = serializers.BriefingQuery
 
@@ -69,7 +69,7 @@ class GetBriefingView(AgentContextView):
         return Response(briefing)
 
 
-class LogDecisionView(AgentContextView):
+class LogDecisionView(ContextApiView):
     audit_tool_name = "log_decision"
     request_serializer = serializers.LogDecisionRequest
 
@@ -91,7 +91,7 @@ class LogDecisionView(AgentContextView):
         )
 
 
-class UpdateStateView(AgentContextView):
+class UpdateStateView(ContextApiView):
     audit_tool_name = "update_state"
     request_serializer = serializers.UpdateStateRequest
 
@@ -110,7 +110,7 @@ class UpdateStateView(AgentContextView):
         return Response({"success": True, "updated_at": record["updated_at"]})
 
 
-class LogSessionView(AgentContextView):
+class LogSessionView(ContextApiView):
     audit_tool_name = "log_session"
     request_serializer = serializers.LogSessionRequest
 
@@ -131,7 +131,7 @@ class LogSessionView(AgentContextView):
         )
 
 
-class ExportMarkdownView(AgentContextView):
+class ExportMarkdownView(ContextApiView):
     audit_tool_name = "export_markdown"
     request_serializer = serializers.ExportRequest
 

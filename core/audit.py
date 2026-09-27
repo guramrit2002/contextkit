@@ -14,7 +14,7 @@ MAX_ERROR_LENGTH = 2000
 def log_audit_event(
     tool_name: str,
     status: str,
-    agent_id: Optional[str] = None,
+    client_id: Optional[str] = None,
     project_id: Optional[str] = None,
     user_id: Optional[str] = None,
     error_message: Optional[str] = None,
@@ -32,7 +32,7 @@ def log_audit_event(
         storage.create_audit_log_entry(
             tool_name=tool_name,
             status=status,
-            agent_id=agent_id,
+            client_id=client_id,
             project_id=project_id,
             user_id=user_id,
             error_message=error_message,

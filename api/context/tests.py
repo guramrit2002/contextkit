@@ -1,37 +1,46 @@
 import os
 import sqlite3
+import tempfile
+from pathlib import Path
 from unittest import mock
 
+from django.core import checks
 from django.db import connection
-from django.test import TransactionTestCase
+from django.test import SimpleTestCase, TransactionTestCase
 from rest_framework.test import APIClient
 
-from agents.services import create_agent
-from core.db_init import initialize_database
+from clients.services import create_client
+from context.checks import core_database_schema
+from core.db_init import SchemaStatus, initialize_database
 
 BASE = "/api/agent/v1/context"
-CORE_TABLES = ("audit_log", "decisions", "sessions", "state", "projects")
+CORE_TABLES = {"projects", "decisions", "state", "sessions", "audit_log", "alembic_version"}
 
 
 class ContextApiTestCase(TransactionTestCase):
     """
-    TransactionTestCase so Django commits the agent rows: core reads them through its own
-    connection to the same SQLite file.
+    Core gets its own fresh database per test; Django's test database holds the clients.
+    TransactionTestCase so the client rows are committed: core reads them through its own
+    read-only connection to Django's file.
     """
 
     def setUp(self):
-        self.db_path = connection.settings_dict["NAME"]
-        env = mock.patch.dict(os.environ, {"CONTEXTKIT_DB_PATH": self.db_path})
+        core_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(core_dir.cleanup)
+        self.db_path = str(Path(core_dir.name) / "core.sqlite3")
+        self.django_db_path = connection.settings_dict["NAME"]
+        env = mock.patch.dict(os.environ, {
+            "CONTEXTKIT_DB_PATH": self.db_path,
+            "DJANGO_DB_PATH": self.django_db_path,
+        })
         env.start()
         self.addCleanup(env.stop)
         os.environ.pop("REQUIRE_AUTH", None)
-
         initialize_database()
-        with sqlite3.connect(self.db_path) as conn:
-            for table in CORE_TABLES:
-                conn.execute(f"DELETE FROM {table}")
 
-        self.agent, self.key = create_agent(user_id="alice", project_id="proj-1", name="ci-bot")
+        self.client_record, self.key = create_client(
+            user_id="alice", project_id="proj-1", name="ci-bot"
+        )
         self.client = APIClient()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.key}")
 
@@ -41,7 +50,7 @@ class ContextApiTestCase(TransactionTestCase):
 
     def audit(self):
         return self.query(
-            "SELECT tool_name, status, agent_id, project_id FROM audit_log ORDER BY timestamp"
+            "SELECT tool_name, status, client_id, project_id FROM audit_log ORDER BY timestamp"
         )
 
 
@@ -51,7 +60,8 @@ class EndpointTests(ContextApiTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["project"]["id"], "proj-1")
-        self.assertEqual(self.audit(), [("get_context", "success", self.agent.id, "proj-1")])
+        expected = [("get_context", "success", self.client_record.id, "proj-1")]
+        self.assertEqual(self.audit(), expected)
 
     def test_log_decision(self):
         response = self.client.post(
@@ -70,10 +80,11 @@ class EndpointTests(ContextApiTestCase):
         self.assertTrue(body["decision_id"])
         self.assertTrue(body["created_at"])
         rows = self.query(
-            "SELECT project_id, agent_id, user_id, alternatives_considered FROM decisions"
+            "SELECT project_id, client_id, user_id, alternatives_considered FROM decisions"
         )
-        self.assertEqual(rows, [("proj-1", self.agent.id, "alice", "Flask")])
-        self.assertEqual(self.audit(), [("log_decision", "success", self.agent.id, "proj-1")])
+        self.assertEqual(rows, [("proj-1", self.client_record.id, "alice", "Flask")])
+        expected = [("log_decision", "success", self.client_record.id, "proj-1")]
+        self.assertEqual(self.audit(), expected)
 
     def test_update_state(self):
         response = self.client.post(
@@ -95,8 +106,8 @@ class EndpointTests(ContextApiTestCase):
         self.assertEqual(response.status_code, 201)
         self.assertTrue(response.json()["session_id"])
         self.assertEqual(
-            self.query("SELECT project_id, agent_id, summary FROM sessions"),
-            [("proj-1", self.agent.id, "Built REST API")],
+            self.query("SELECT project_id, client_id, summary FROM sessions"),
+            [("proj-1", self.client_record.id, "Built REST API")],
         )
 
     def test_export_markdown(self):
@@ -173,7 +184,7 @@ class AuthenticationTests(ContextApiTestCase):
         self.assert_denied_401(self.client.get(f"{BASE}/briefing/"))
 
     def test_revoked_key_stops_working(self):
-        self.agent.delete()
+        self.client_record.delete()
 
         self.assert_denied_401(self.client.get(f"{BASE}/briefing/"))
 
@@ -199,12 +210,12 @@ class ProjectAccessTests(ContextApiTestCase):
                 self.assertIn("proj-2", response.json()["detail"])
 
         self.assertEqual(
-            self.audit(), [(tool, "denied", self.agent.id, "proj-2") for tool, _ in calls]
+            self.audit(), [(tool, "denied", self.client_record.id, "proj-2") for tool, _ in calls]
         )
         self.assertEqual(self.query("SELECT COUNT(*) FROM decisions"), [(0,)])
 
-    def test_agents_are_isolated_from_each_other(self):
-        _, bob_key = create_agent(user_id="bob", project_id="proj-bob", name="bob-bot")
+    def test_clients_are_isolated_from_each_other(self):
+        _, bob_key = create_client(user_id="bob", project_id="proj-bob", name="bob-bot")
         self.client.post(
             f"{BASE}/decisions/", {"decision": "alice", "reasoning": "r"}, format="json"
         )
@@ -215,6 +226,22 @@ class ProjectAccessTests(ContextApiTestCase):
 
         self.assertEqual(briefing["project"]["id"], "proj-bob")
         self.assertEqual(briefing["decisions"], [])
+
+
+class DatabaseSeparationTests(ContextApiTestCase):
+    def tables(self, path):
+        with sqlite3.connect(path) as conn:
+            return {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+
+    def test_core_and_django_tables_live_in_separate_files(self):
+        self.client.post(f"{BASE}/decisions/", {"decision": "d", "reasoning": "r"}, format="json")
+
+        core_tables = self.tables(self.db_path)
+        django_tables = self.tables(self.django_db_path)
+        self.assertEqual(core_tables, CORE_TABLES)
+        self.assertIn("clients", django_tables)
+        self.assertIn("api_keys", django_tables)
+        self.assertFalse(core_tables & django_tables)
 
 
 class ErrorHandlingTests(ContextApiTestCase):
@@ -236,7 +263,7 @@ class ErrorHandlingTests(ContextApiTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("maximum length", response.json()["detail"])
-        self.assertEqual(self.audit(), [("log_decision", "error", self.agent.id, "proj-1")])
+        self.assertEqual(self.audit(), [("log_decision", "error", self.client_record.id, "proj-1")])
 
     def test_unexpected_failure_is_500_without_leaking_details(self):
         with mock.patch(
@@ -246,7 +273,38 @@ class ErrorHandlingTests(ContextApiTestCase):
 
         self.assertEqual(response.status_code, 500)
         self.assertNotIn("/secret/path", response.content.decode())
-        self.assertEqual(self.audit(), [("log_session", "error", self.agent.id, "proj-1")])
+        self.assertEqual(self.audit(), [("log_session", "error", self.client_record.id, "proj-1")])
 
     def test_wrong_method_is_405(self):
         self.assertEqual(self.client.get(f"{BASE}/decisions/").status_code, 405)
+
+
+class CoreSchemaCheckTests(SimpleTestCase):
+    def run_check(self, current, has_tables=True):
+        status = SchemaStatus(current, "0003", has_tables)
+        with mock.patch("context.checks.core_schema_status", return_value=status):
+            return core_database_schema(None)
+
+    def test_up_to_date_database_passes(self):
+        self.assertEqual(self.run_check("0003"), [])
+
+    def test_database_behind_is_an_error_with_the_upgrade_command(self):
+        [issue] = self.run_check("0002")
+
+        self.assertEqual((issue.level, issue.id), (checks.ERROR, "context.E001"))
+        self.assertIn("0002", issue.msg)
+        self.assertIn("alembic upgrade head", issue.hint)
+
+    def test_pre_alembic_database_is_an_error(self):
+        [issue] = self.run_check(None, has_tables=True)
+
+        self.assertEqual(issue.id, "context.E001")
+        self.assertIn("pre-Alembic", issue.msg)
+
+    def test_missing_database_is_only_a_warning(self):
+        [issue] = self.run_check(None, has_tables=False)
+
+        self.assertEqual((issue.level, issue.id), (checks.WARNING, "context.W001"))
+
+    def test_check_is_registered(self):
+        self.assertIn(core_database_schema, checks.registry.registry.get_checks())

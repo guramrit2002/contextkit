@@ -13,6 +13,8 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 import os
 from pathlib import Path
 
+from core.config import resolve_django_db_path
+
 # Load environment variables from .env file
 try:
     from dotenv import load_dotenv
@@ -49,7 +51,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
-    'agents',
+    'clients',
     'context',
 ]
 
@@ -89,23 +91,14 @@ WSGI_APPLICATION = 'api.wsgi.application'
 
 REPO_ROOT = BASE_DIR.parent
 
-
-def _contextkit_db_path() -> Path:
-    # Same file core uses, so core can read agents/api_keys. Relative paths are
-    # resolved from the repo root, not from api/.
-    configured = os.getenv('CONTEXTKIT_DB_PATH')
-    if not configured:
-        return REPO_ROOT / 'db.sqlite3'
-    path = Path(configured).expanduser()
-    return path if path.is_absolute() else (REPO_ROOT / path).resolve()
-
-
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': _contextkit_db_path(),
-        # A file, not in-memory, so core's own connection can see the test data too.
-        'TEST': {'NAME': str(REPO_ROOT / 'test_contextkit.sqlite3')},
+        # Django's own file (clients, api_keys, auth), separate from core's database. Core's
+        # resolver is used so core reads keys from exactly this file.
+        'NAME': resolve_django_db_path(),
+        # A file, not in-memory, so core's read-only connection can see test clients too.
+        'TEST': {'NAME': str(REPO_ROOT / 'test_django.sqlite3')},
     }
 }
 

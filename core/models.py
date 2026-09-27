@@ -8,7 +8,7 @@ from core.config import config
 
 Base = declarative_base()
 
-# Tables owned and migrated by Django (api/agents). Core only reads them, so they live on a
+# Tables owned and migrated by Django (api/clients). Core only reads them, so they live on a
 # separate metadata that Alembic never sees.
 DjangoOwnedBase = declarative_base()
 
@@ -54,7 +54,7 @@ class Decision(Base):
     id = Column(String(36), primary_key=True)
     project_id = Column(String(500), ForeignKey("projects.id"), nullable=False)
     user_id = Column(String(255), nullable=False, default=get_default_user_id)
-    agent_id = Column(String(36), nullable=True)
+    client_id = Column(String(36), nullable=True)
     decision = Column(Text, nullable=False)
     reasoning = Column(Text, nullable=False)
     alternatives_considered = Column(Text)
@@ -88,7 +88,7 @@ class Session(Base):
     id = Column(String(36), primary_key=True)
     project_id = Column(String(500), ForeignKey("projects.id"), nullable=False)
     user_id = Column(String(255), nullable=False, default=get_default_user_id)
-    agent_id = Column(String(36), nullable=True)
+    client_id = Column(String(36), nullable=True)
     summary = Column(Text, nullable=False)
     decisions_made = Column(Text)
     created_at = Column(DateTime, default=utc_now, nullable=False)
@@ -96,10 +96,10 @@ class Session(Base):
     project = relationship("Project", back_populates="sessions")
 
 
-class Agent(DjangoOwnedBase):
-    """Read-only mapping of Django's agents table. Must match api/agents/models.py."""
+class Client(DjangoOwnedBase):
+    """Read-only mapping of Django's clients table. Must match api/clients/models.py."""
 
-    __tablename__ = "agents"
+    __tablename__ = "clients"
 
     id = Column(String(36), primary_key=True)
     user_id = Column(String(255), nullable=False)
@@ -110,24 +110,24 @@ class Agent(DjangoOwnedBase):
 
 
 class ApiKey(DjangoOwnedBase):
-    """Read-only mapping of Django's api_keys table. Must match api/agents/models.py."""
+    """Read-only mapping of Django's api_keys table. Must match api/clients/models.py."""
 
     __tablename__ = "api_keys"
 
     id = Column(String(36), primary_key=True)
-    agent_id = Column(String(36), ForeignKey("agents.id"), nullable=False, unique=True)
+    client_id = Column(String(36), ForeignKey("clients.id"), nullable=False, unique=True)
     key_hash = Column(String(64), nullable=False, unique=True)
     created_at = Column(DateTime, nullable=False)
 
 
 class AuditLog(Base):
-    """One row per tool call, written synchronously on the agent request path."""
+    """One row per tool call, written synchronously on the request path."""
 
     __tablename__ = "audit_log"
 
     id = Column(String(36), primary_key=True)
-    # Nullable: calls denied for an unknown key have no agent or project to attribute.
-    agent_id = Column(String(36), nullable=True)
+    # Nullable: calls denied for an unknown key have no client or project to attribute.
+    client_id = Column(String(36), nullable=True)
     tool_name = Column(String(50), nullable=False)
     project_id = Column(String(500), nullable=True)
     user_id = Column(String(255), nullable=True)
@@ -137,7 +137,7 @@ class AuditLog(Base):
     duration_ms = Column(Integer)
 
     __table_args__ = (
-        Index("ix_audit_log_agent_id_timestamp", "agent_id", "timestamp"),
+        Index("ix_audit_log_client_id_timestamp", "client_id", "timestamp"),
         Index("ix_audit_log_project_id_timestamp", "project_id", "timestamp"),
         Index("ix_audit_log_user_id_timestamp", "user_id", "timestamp"),
     )

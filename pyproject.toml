@@ -64,4 +64,4 @@ target-version = "py312"
 select = ["E", "F", "W", "I"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["core", "mcp_server", "api", "agents", "context"]
+known-first-party = ["core", "mcp_server", "api", "clients", "context"]

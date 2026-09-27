@@ -1,14 +1,10 @@
 import sqlite3
-from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.pool import NullPool
 
 from core import audit, auth, services, storage
 from core.errors import AuthenticationError, AuthorizationError, StorageError
-from core.models import Agent, ApiKey, DjangoOwnedBase
 
 
 @pytest.fixture()
@@ -21,33 +17,13 @@ def db_path(tmp_path, monkeypatch):
 
 
 @pytest.fixture()
-def agent_tables(db_path):
-    # Stand-in for Django's migration of agents/api_keys.
-    engine = create_engine(f"sqlite:///{db_path}", poolclass=NullPool)
-    DjangoOwnedBase.metadata.create_all(engine)
-    engine.dispose()
+def client_tables(db_path, add_client):
     return db_path
 
 
 @pytest.fixture()
-def make_agent(agent_tables):
-    def _make(user_id="alice", project_id="proj-1", api_key="ck_alice_key"):
-        session = storage.get_session()
-        now = datetime.now(UTC)
-        agent_id = f"agent-{user_id}-{project_id}"
-        session.add(Agent(
-            id=agent_id, user_id=user_id, project_id=project_id, name=user_id,
-            created_at=now, updated_at=now,
-        ))
-        session.add(ApiKey(
-            id=f"key-{agent_id}", agent_id=agent_id,
-            key_hash=auth.hash_api_key(api_key), created_at=now,
-        ))
-        session.commit()
-        session.close()
-        return auth.AgentContext(agent_id, user_id, project_id), api_key
-
-    return _make
+def make_client(db_path, add_client):
+    return add_client
 
 
 def audit_rows(path):
@@ -60,13 +36,13 @@ def recorder():
     calls = []
 
     async def operation():
-        calls.append(auth.current_agent())
+        calls.append(auth.current_client())
         return "done"
 
     return calls, operation
 
 
-# hash_api_key / authenticate_agent
+# hash_api_key / authenticate_client
 
 
 def test_hash_api_key_is_sha256_hex_matching_django_issuer():
@@ -75,68 +51,96 @@ def test_hash_api_key_is_sha256_hex_matching_django_issuer():
     )
 
 
-def test_authenticate_valid_key_returns_agent_context(make_agent):
-    expected, key = make_agent()
+def test_authenticate_valid_key_returns_client_context(make_client):
+    expected, key = make_client()
 
-    assert auth.authenticate_agent(key) == expected
-
-
-def test_authenticate_strips_surrounding_whitespace(make_agent):
-    expected, key = make_agent()
-
-    assert auth.authenticate_agent(f"  {key}\n") == expected
+    assert auth.authenticate_client(key) == expected
 
 
-def test_authenticate_unknown_key_is_rejected(make_agent):
-    make_agent()
+def test_authenticate_strips_surrounding_whitespace(make_client):
+    expected, key = make_client()
+
+    assert auth.authenticate_client(f"  {key}\n") == expected
+
+
+def test_authenticate_unknown_key_is_rejected(make_client):
+    make_client()
 
     with pytest.raises(AuthenticationError, match="Invalid API key"):
-        auth.authenticate_agent("ck_wrong")
+        auth.authenticate_client("ck_wrong")
 
 
 @pytest.mark.parametrize("bad_key", [None, "", "   ", 123])
-def test_authenticate_rejects_missing_or_malformed_key(bad_key, agent_tables):
+def test_authenticate_rejects_missing_or_malformed_key(bad_key, client_tables):
     with pytest.raises(AuthenticationError, match="required"):
-        auth.authenticate_agent(bad_key)
+        auth.authenticate_client(bad_key)
 
 
-def test_authenticate_rejects_oversized_key_without_lookup(monkeypatch, agent_tables):
-    monkeypatch.setattr(storage, "get_agent_by_key_hash", pytest.fail)
+def test_authenticate_rejects_oversized_key_without_lookup(monkeypatch, client_tables):
+    monkeypatch.setattr(storage, "get_client_by_key_hash", pytest.fail)
 
     with pytest.raises(AuthenticationError, match="Invalid API key"):
-        auth.authenticate_agent("k" * (auth.MAX_API_KEY_LENGTH + 1))
+        auth.authenticate_client("k" * (auth.MAX_API_KEY_LENGTH + 1))
 
 
-def test_missing_agent_tables_gives_actionable_error(db_path):
+def test_missing_django_database_gives_actionable_error_and_is_not_created(
+    db_path, django_db_path
+):
     with pytest.raises(StorageError, match="manage.py migrate"):
-        auth.authenticate_agent("ck_anything")
+        auth.authenticate_client("ck_anything")
+
+    assert not django_db_path.exists()
 
 
-def test_other_database_errors_are_not_masked(db_path):
-    with sqlite3.connect(db_path) as conn:
-        conn.execute("CREATE TABLE api_keys (id TEXT, agent_id TEXT, key_hash TEXT)")
+def test_django_database_without_client_tables_gives_actionable_error(db_path, django_db_path):
+    sqlite3.connect(django_db_path).close()
+
+    with pytest.raises(StorageError, match=str(django_db_path)):
+        auth.authenticate_client("ck_anything")
+
+
+def test_other_database_errors_are_not_masked(db_path, django_db_path):
+    with sqlite3.connect(django_db_path) as conn:
+        conn.execute("CREATE TABLE api_keys (id TEXT, client_id TEXT, key_hash TEXT)")
 
     with pytest.raises(DBAPIError):
-        auth.authenticate_agent("ck_anything")
+        auth.authenticate_client("ck_anything")
 
 
-# validate_agent_project_access
+def test_core_opens_django_database_read_only(add_client):
+    engine = storage.get_django_engine()
+    try:
+        with engine.connect() as conn, pytest.raises(DBAPIError, match="readonly"):
+            conn.exec_driver_sql("DELETE FROM api_keys")
+    finally:
+        engine.dispose()
 
 
-AGENT = auth.AgentContext("agent-1", "alice", "proj-1")
+def test_client_tables_stay_out_of_core_database(db_path, add_client):
+    add_client()
+
+    with sqlite3.connect(db_path) as conn:
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert not tables & {"clients", "api_keys"}
+
+
+# validate_client_project_access
+
+
+CLIENT = auth.ClientContext("client-1", "alice", "proj-1")
 
 
 def test_omitted_project_resolves_to_assigned_project():
-    assert auth.validate_agent_project_access(AGENT, None) == "proj-1"
+    assert auth.validate_client_project_access(CLIENT, None) == "proj-1"
 
 
 def test_matching_project_is_allowed():
-    assert auth.validate_agent_project_access(AGENT, "proj-1") == "proj-1"
+    assert auth.validate_client_project_access(CLIENT, "proj-1") == "proj-1"
 
 
 def test_other_project_is_denied():
     with pytest.raises(AuthorizationError, match="proj-2"):
-        auth.validate_agent_project_access(AGENT, "proj-2")
+        auth.validate_client_project_access(CLIENT, "proj-2")
 
 
 def test_authorization_error_is_a_permission_error():
@@ -165,12 +169,12 @@ async def test_require_auth_denies_call_without_key(db_path, monkeypatch):
 
     assert calls == []
     [row] = audit_rows(db_path)
-    assert (row["status"], row["agent_id"], row["project_id"]) == ("denied", None, "proj-1")
+    assert (row["status"], row["client_id"], row["project_id"]) == ("denied", None, "proj-1")
 
 
 @pytest.mark.asyncio
-async def test_invalid_key_is_denied_and_audited(make_agent):
-    make_agent()
+async def test_invalid_key_is_denied_and_audited(make_client):
+    make_client()
     calls, operation = recorder()
 
     with pytest.raises(AuthenticationError):
@@ -179,14 +183,14 @@ async def test_invalid_key_is_denied_and_audited(make_agent):
     assert calls == []
     [row] = audit_rows(storage.get_db_path())
     assert row["status"] == "denied"
-    assert row["agent_id"] is None
+    assert row["client_id"] is None
     assert row["tool_name"] == "log_decision"
     assert row["error_message"] == "Invalid API key"
 
 
 @pytest.mark.asyncio
-async def test_key_is_verified_even_when_auth_not_required(make_agent):
-    make_agent()
+async def test_key_is_verified_even_when_auth_not_required(make_client):
+    make_client()
     _, operation = recorder()
 
     with pytest.raises(AuthenticationError):
@@ -194,8 +198,8 @@ async def test_key_is_verified_even_when_auth_not_required(make_agent):
 
 
 @pytest.mark.asyncio
-async def test_project_mismatch_is_denied_and_audited(make_agent):
-    agent, key = make_agent()
+async def test_project_mismatch_is_denied_and_audited(make_client):
+    client, key = make_client()
     calls, operation = recorder()
 
     with pytest.raises(AuthorizationError):
@@ -204,32 +208,32 @@ async def test_project_mismatch_is_denied_and_audited(make_agent):
     assert calls == []
     [row] = audit_rows(storage.get_db_path())
     assert row["status"] == "denied"
-    assert (row["agent_id"], row["user_id"], row["project_id"]) == (
-        agent.agent_id, "alice", "proj-2",
+    assert (row["client_id"], row["user_id"], row["project_id"]) == (
+        client.client_id, "alice", "proj-2",
     )
 
 
 @pytest.mark.asyncio
-async def test_success_runs_as_agent_and_is_audited(make_agent):
-    agent, key = make_agent()
+async def test_success_runs_as_client_and_is_audited(make_client):
+    client, key = make_client()
     calls, operation = recorder()
 
     assert await auth.guarded_call("get_context", key, None, operation) == "done"
 
-    assert calls == [agent]
-    assert auth.current_agent() is None
+    assert calls == [client]
+    assert auth.current_client() is None
     [row] = audit_rows(storage.get_db_path())
     assert row["status"] == "success"
-    assert (row["agent_id"], row["user_id"], row["project_id"]) == (
-        agent.agent_id, "alice", "proj-1",
+    assert (row["client_id"], row["user_id"], row["project_id"]) == (
+        client.client_id, "alice", "proj-1",
     )
     assert row["duration_ms"] >= 0
     assert row["error_message"] is None
 
 
 @pytest.mark.asyncio
-async def test_operation_error_is_audited_with_redacted_message(make_agent):
-    _, key = make_agent()
+async def test_operation_error_is_audited_with_redacted_message(make_client):
+    _, key = make_client()
 
     async def failing():
         raise ValueError("could not connect with password=hunter2")
@@ -237,7 +241,7 @@ async def test_operation_error_is_audited_with_redacted_message(make_agent):
     with pytest.raises(ValueError):
         await auth.guarded_call("update_state", key, "proj-1", failing)
 
-    assert auth.current_agent() is None
+    assert auth.current_client() is None
     [row] = audit_rows(storage.get_db_path())
     assert row["status"] == "error"
     assert "hunter2" not in row["error_message"]
@@ -245,8 +249,8 @@ async def test_operation_error_is_audited_with_redacted_message(make_agent):
 
 
 @pytest.mark.asyncio
-async def test_audit_write_failure_does_not_fail_the_call(make_agent, monkeypatch):
-    _, key = make_agent()
+async def test_audit_write_failure_does_not_fail_the_call(make_client, monkeypatch):
+    _, key = make_client()
     _, operation = recorder()
 
     def broken(**kwargs):
@@ -262,7 +266,7 @@ def test_authenticate_request_requiring_key_denies_keyless_call(db_path):
         auth.authenticate_request("get_context", None, "proj-1", key_required=True)
 
     [row] = audit_rows(db_path)
-    assert (row["status"], row["agent_id"]) == ("denied", None)
+    assert (row["status"], row["client_id"]) == ("denied", None)
 
 
 def test_authenticate_request_without_requirement_returns_none_for_keyless_call(db_path):
@@ -271,14 +275,14 @@ def test_authenticate_request_without_requirement_returns_none_for_keyless_call(
 
 
 @pytest.mark.asyncio
-async def test_run_as_agent_uses_already_authenticated_agent(make_agent, monkeypatch):
-    agent, _ = make_agent()
-    monkeypatch.setattr(storage, "get_agent_by_key_hash", pytest.fail)
+async def test_run_as_client_uses_already_authenticated_client(make_client, monkeypatch):
+    client, _ = make_client()
+    monkeypatch.setattr(storage, "get_client_by_key_hash", pytest.fail)
     calls, operation = recorder()
 
-    assert await auth.run_as_agent("get_context", agent, None, operation) == "done"
+    assert await auth.run_as_client("get_context", client, None, operation) == "done"
 
-    assert calls == [agent]
+    assert calls == [client]
     [row] = audit_rows(storage.get_db_path())
     assert (row["status"], row["project_id"]) == ("success", "proj-1")
 
@@ -298,12 +302,12 @@ def test_long_error_messages_are_truncated(db_path):
     assert len(row["error_message"]) == audit.MAX_ERROR_LENGTH
 
 
-# services running as an agent
+# services running as a client
 
 
 @pytest.mark.asyncio
-async def test_writes_record_agent_user_and_assigned_project(make_agent):
-    agent, key = make_agent()
+async def test_writes_record_client_user_and_assigned_project(make_client):
+    client, key = make_client()
 
     async def work():
         decision = await services.log_decision(None, "Use Alembic", "Schema versioning")
@@ -313,11 +317,11 @@ async def test_writes_record_agent_user_and_assigned_project(make_agent):
 
     decision, session, state = await auth.guarded_call("log_decision", key, None, work)
 
-    assert (decision["project_id"], decision["agent_id"], decision["user_id"]) == (
-        "proj-1", agent.agent_id, "alice",
+    assert (decision["project_id"], decision["client_id"], decision["user_id"]) == (
+        "proj-1", client.client_id, "alice",
     )
-    assert (session["project_id"], session["agent_id"], session["user_id"]) == (
-        "proj-1", agent.agent_id, "alice",
+    assert (session["project_id"], session["client_id"], session["user_id"]) == (
+        "proj-1", client.client_id, "alice",
     )
     assert state["project_id"] == "proj-1"
     with sqlite3.connect(storage.get_db_path()) as conn:
@@ -325,8 +329,8 @@ async def test_writes_record_agent_user_and_assigned_project(make_agent):
 
 
 @pytest.mark.asyncio
-async def test_briefing_shows_which_agent_wrote_each_record(make_agent):
-    agent, key = make_agent()
+async def test_briefing_shows_which_client_wrote_each_record(make_client):
+    client, key = make_client()
 
     async def work():
         await services.log_decision(None, "Use Alembic", "Schema versioning")
@@ -336,13 +340,13 @@ async def test_briefing_shows_which_agent_wrote_each_record(make_agent):
     briefing = await auth.guarded_call("get_context", key, None, work)
 
     assert briefing["project"]["id"] == "proj-1"
-    assert briefing["decisions"][0]["agent_id"] == agent.agent_id
-    assert briefing["recent_sessions"][0]["agent_id"] == agent.agent_id
+    assert briefing["decisions"][0]["client_id"] == client.client_id
+    assert briefing["recent_sessions"][0]["client_id"] == client.client_id
 
 
 @pytest.mark.asyncio
-async def test_export_markdown_uses_assigned_project(make_agent):
-    _, key = make_agent()
+async def test_export_markdown_uses_assigned_project(make_client):
+    _, key = make_client()
 
     markdown = await auth.guarded_call("export_markdown", key, None, services.export_markdown)
 
@@ -350,8 +354,8 @@ async def test_export_markdown_uses_assigned_project(make_agent):
 
 
 @pytest.mark.asyncio
-async def test_services_reject_other_project_even_inside_guarded_call(make_agent):
-    _, key = make_agent()
+async def test_services_reject_other_project_even_inside_guarded_call(make_client):
+    _, key = make_client()
 
     async def sneaky():
         return await services.log_decision("proj-2", "Escalate", "Try another project")
@@ -366,24 +370,24 @@ async def test_services_reject_other_project_even_inside_guarded_call(make_agent
 
 
 @pytest.mark.asyncio
-async def test_state_owner_is_updated_on_later_write(make_agent):
+async def test_state_owner_is_updated_on_later_write(make_client):
     await services.update_state("proj-1", "Started locally", "Continue")
-    _, key = make_agent()
+    _, key = make_client()
 
     async def work():
-        return await services.update_state(None, "Continued as agent", "Ship")
+        return await services.update_state(None, "Continued as client", "Ship")
 
     await auth.guarded_call("update_state", key, None, work)
 
     with sqlite3.connect(storage.get_db_path()) as conn:
         assert conn.execute("SELECT user_id, progress FROM state").fetchall() == [
-            ("alice", "Continued as agent")
+            ("alice", "Continued as client")
         ]
 
 
 @pytest.mark.asyncio
-async def test_local_mode_writes_keep_default_user_and_no_agent(db_path):
-    decision = await services.log_decision("proj-1", "Local", "No agent")
+async def test_local_mode_writes_keep_default_user_and_no_client(db_path):
+    decision = await services.log_decision("proj-1", "Local", "No client")
 
-    assert decision["agent_id"] is None
+    assert decision["client_id"] is None
     assert decision["user_id"]
