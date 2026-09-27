@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.pool import NullPool
 
 from core import storage
+from core.migrations import include_name
 from core.models import Base
 
 LEGACY_SCHEMA = """
@@ -132,17 +133,32 @@ def test_downgrade_to_base_drops_all_core_tables(db_path):
     assert set(_inspector(db_path).get_table_names()) == {"alembic_version"}
 
 
-def test_models_match_migrations(db_path):
-    storage.init_db()
-
-    engine = create_engine(f"sqlite:///{db_path}", poolclass=NullPool)
+def _autogenerate_diff(path):
+    engine = create_engine(f"sqlite:///{path}", poolclass=NullPool)
     try:
         with engine.connect() as conn:
-            diff = compare_metadata(MigrationContext.configure(conn), Base.metadata)
+            context = MigrationContext.configure(conn, opts={"include_name": include_name})
+            return compare_metadata(context, Base.metadata)
     finally:
         engine.dispose()
 
-    assert diff == []
+
+def test_models_match_migrations(db_path):
+    storage.init_db()
+
+    assert _autogenerate_diff(db_path) == []
+
+
+def test_autogenerate_ignores_django_owned_tables(db_path):
+    storage.init_db()
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(
+            "CREATE TABLE agents (id VARCHAR(36) PRIMARY KEY);"
+            "CREATE TABLE api_keys (id VARCHAR(36) PRIMARY KEY, key_hash VARCHAR(64));"
+            "CREATE INDEX ix_api_keys_hash ON api_keys (key_hash);"
+        )
+
+    assert _autogenerate_diff(db_path) == []
 
 
 def test_alembic_ini_resolves_database_from_environment(db_path):

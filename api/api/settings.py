@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'agents',
 ]
 
 MIDDLEWARE = [
@@ -84,10 +85,23 @@ WSGI_APPLICATION = 'api.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
+REPO_ROOT = BASE_DIR.parent
+
+
+def _contextkit_db_path() -> Path:
+    # Same file core uses, so core can read agents/api_keys. Relative paths are
+    # resolved from the repo root, not from api/.
+    configured = os.getenv('CONTEXTKIT_DB_PATH')
+    if not configured:
+        return REPO_ROOT / 'db.sqlite3'
+    path = Path(configured).expanduser()
+    return path if path.is_absolute() else (REPO_ROOT / path).resolve()
+
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': _contextkit_db_path(),
     }
 }
 

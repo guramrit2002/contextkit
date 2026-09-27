@@ -5,6 +5,7 @@ from alembic import context
 from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool
 
+from core.migrations import include_name
 from core.models import Base
 
 config = context.config
@@ -28,6 +29,7 @@ def run_migrations_offline() -> None:
     context.configure(
         url=_database_url(),
         target_metadata=target_metadata,
+        include_name=include_name,
         literal_binds=True,
         render_as_batch=True,
     )
@@ -43,6 +45,7 @@ def run_migrations_online() -> None:
             context.configure(
                 connection=connection,
                 target_metadata=target_metadata,
+                include_name=include_name,
                 render_as_batch=True,
             )
             with context.begin_transaction():
