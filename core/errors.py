@@ -38,8 +38,8 @@ class ValidationError(ContextKitError):
 
 
 class AuthenticationError(ContextKitError):
-    """Raised when an API key is missing or does not match an agent."""
+    """Raised when an API key is missing or does not match a client."""
 
 
 class AuthorizationError(ContextKitError, PermissionError):
-    """Raised when an authenticated agent requests a project it is not assigned to."""
+    """Raised when an authenticated client requests a project it is not assigned to."""

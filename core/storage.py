@@ -13,8 +13,9 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
+from core.config import resolve_db_path, resolve_django_db_path
 from core.errors import StorageError
-from core.models import Agent, ApiKey, AuditLog, Decision, Project, State
+from core.models import ApiKey, AuditLog, Client, Decision, Project, State
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 BASELINE_REVISION = "0001"
@@ -22,13 +23,7 @@ BASELINE_REVISION = "0001"
 
 def get_db_path() -> str:
     """Get the path to the contextkit database."""
-    configured_path = os.environ.get("CONTEXTKIT_DB_PATH")
-    if configured_path:
-        return os.path.abspath(os.path.expanduser(configured_path))
-
-    # Use db.sqlite3 in the project root
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(project_root, "db.sqlite3")
+    return str(resolve_db_path())
 
 
 def get_engine():
@@ -146,7 +141,7 @@ async def get_briefing(project_id: str) -> dict[str, Any]:
             "decisions": [
                 {
                     "id": d.id,
-                    "agent_id": d.agent_id,
+                    "client_id": d.client_id,
                     "decision": d.decision,
                     "reasoning": d.reasoning,
                     "alternatives_considered": d.alternatives_considered,
@@ -165,7 +160,7 @@ async def get_briefing(project_id: str) -> dict[str, Any]:
                 {
                     "id": s.id,
                     "project_id": s.project_id,
-                    "agent_id": s.agent_id,
+                    "client_id": s.client_id,
                     "summary": s.summary,
                     "decisions_made": s.decisions_made,
                     "created_at": s.created_at.isoformat(),
@@ -187,7 +182,7 @@ async def create_decision(
     decision: str,
     reasoning: str,
     alternatives_considered: Optional[str] = None,
-    agent_id: Optional[str] = None,
+    client_id: Optional[str] = None,
     user_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """Store a decision in the database."""
@@ -200,7 +195,7 @@ async def create_decision(
         new_decision = Decision(
             id=decision_id,
             project_id=project_id,
-            agent_id=agent_id,
+            client_id=client_id,
             decision=decision,
             reasoning=reasoning,
             alternatives_considered=alternatives_considered,
@@ -212,7 +207,7 @@ async def create_decision(
         return {
             "id": decision_id,
             "project_id": project_id,
-            "agent_id": agent_id,
+            "client_id": client_id,
             "user_id": new_decision.user_id,
             "decision": decision,
             "reasoning": reasoning,
@@ -276,7 +271,7 @@ async def create_session(
     project_id: str,
     summary: str,
     decisions_made: Optional[str] = None,
-    agent_id: Optional[str] = None,
+    client_id: Optional[str] = None,
     user_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """Store a session summary in the database."""
@@ -291,7 +286,7 @@ async def create_session(
         new_session = SessionModel(
             id=session_id,
             project_id=project_id,
-            agent_id=agent_id,
+            client_id=client_id,
             summary=summary,
             decisions_made=decisions_made,
             **_owner(user_id),
@@ -302,7 +297,7 @@ async def create_session(
         return {
             "id": session_id,
             "project_id": project_id,
-            "agent_id": agent_id,
+            "client_id": client_id,
             "user_id": new_session.user_id,
             "summary": summary,
             "decisions_made": decisions_made,
@@ -371,40 +366,58 @@ async def export_markdown(project_id: str) -> str:
         session.close()
 
 
-def get_agent_by_key_hash(key_hash: str) -> Optional[dict[str, Any]]:
-    """Look up the agent that owns an API key hash (api_keys joined to agents)."""
-    session = get_session()
+def get_django_engine():
+    """Read-only engine on Django's database, where clients and api_keys live."""
+    path = resolve_django_db_path()
+    # mode=ro: core never writes Django's tables, and a missing file is an error rather than
+    # SQLite silently creating an empty database.
+    return create_engine(
+        f"sqlite:///file:{path}?mode=ro&uri=true", echo=False, poolclass=NullPool
+    )
+
+
+def _client_tables_missing(engine) -> bool:
+    if not resolve_django_db_path().exists():
+        return True
+    return not inspect(engine).has_table("api_keys")
+
+
+def get_client_by_key_hash(key_hash: str) -> Optional[dict[str, Any]]:
+    """Look up the client that owns an API key hash (api_keys joined to clients)."""
+    engine = get_django_engine()
+    session = Session(bind=engine)
     try:
         stmt = (
-            select(Agent)
-            .join(ApiKey, ApiKey.agent_id == Agent.id)
+            select(Client)
+            .join(ApiKey, ApiKey.client_id == Client.id)
             .where(ApiKey.key_hash == key_hash)
         )
-        agent = session.execute(stmt).scalar_one_or_none()
+        client = session.execute(stmt).scalar_one_or_none()
     except DBAPIError as exc:
-        if not inspect(session.get_bind()).has_table("api_keys"):
+        if _client_tables_missing(engine):
             raise StorageError(
-                "Agent tables not found. Run `python manage.py migrate` in api/ "
-                "to create them before using API keys."
+                f"Client tables not found in {resolve_django_db_path()}. Run "
+                "`python manage.py migrate` in api/ (with the same DJANGO_DB_PATH) first."
             ) from exc
         raise
     finally:
         session.close()
+        engine.dispose()
 
-    if agent is None:
+    if client is None:
         return None
     return {
-        "id": agent.id,
-        "user_id": agent.user_id,
-        "project_id": agent.project_id,
-        "name": agent.name,
+        "id": client.id,
+        "user_id": client.user_id,
+        "project_id": client.project_id,
+        "name": client.name,
     }
 
 
 def create_audit_log_entry(
     tool_name: str,
     status: str,
-    agent_id: Optional[str] = None,
+    client_id: Optional[str] = None,
     project_id: Optional[str] = None,
     user_id: Optional[str] = None,
     error_message: Optional[str] = None,
@@ -415,7 +428,7 @@ def create_audit_log_entry(
     try:
         entry = AuditLog(
             id=str(uuid.uuid4()),
-            agent_id=agent_id,
+            client_id=client_id,
             tool_name=tool_name,
             project_id=project_id,
             user_id=user_id,

@@ -1,4 +1,4 @@
-"""Attach agent authentication to MCP tools. All auth logic lives in core.auth."""
+"""Attach client (API key) authentication to MCP tools. All auth logic lives in core.auth."""
 import functools
 import os
 from typing import Any, Awaitable, Callable, Optional
@@ -23,7 +23,7 @@ def resolve_api_key() -> Optional[str]:
     """
     Over HTTP the key comes only from `Authorization: Bearer <key>`. The server's own
     CONTEXTKIT_API_KEY must never apply to HTTP callers, or every keyless request would
-    run as that agent. Over stdio the key comes from CONTEXTKIT_API_KEY in the MCP config.
+    run as that client. Over stdio the key comes from CONTEXTKIT_API_KEY in the MCP config.
     """
     headers = _http_headers()
     if headers is None:

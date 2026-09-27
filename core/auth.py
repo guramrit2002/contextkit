@@ -1,4 +1,4 @@
-"""Agent authentication, project authorization, and audited tool execution."""
+"""Client authentication, project authorization, and audited tool execution."""
 import hashlib
 import time
 from contextvars import ContextVar
@@ -16,54 +16,54 @@ MAX_API_KEY_LENGTH = 512
 
 
 @dataclass(frozen=True)
-class AgentContext:
-    """Identity of the authenticated agent making the current call."""
+class ClientContext:
+    """Identity of the authenticated client (API key holder) making the current call."""
 
-    agent_id: str
+    client_id: str
     user_id: str
     project_id: str
 
 
-_current_agent: ContextVar[Optional[AgentContext]] = ContextVar("current_agent", default=None)
+_current_client: ContextVar[Optional[ClientContext]] = ContextVar("current_client", default=None)
 
 
-def current_agent() -> Optional[AgentContext]:
-    """The agent authenticated for the call in progress, or None in local mode."""
-    return _current_agent.get()
+def current_client() -> Optional[ClientContext]:
+    """The client authenticated for the call in progress, or None in local mode."""
+    return _current_client.get()
 
 
 def hash_api_key(api_key: str) -> str:
-    # Must stay identical to api/agents/services.hash_api_key, which issues the keys.
+    # Must stay identical to api/clients/services.hash_api_key, which issues the keys.
     return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
 
 
-def authenticate_agent(api_key: str) -> AgentContext:
-    """Resolve an API key to its agent. Raises AuthenticationError if it matches none."""
+def authenticate_client(api_key: str) -> ClientContext:
+    """Resolve an API key to its client. Raises AuthenticationError if it matches none."""
     if not isinstance(api_key, str) or not api_key.strip():
         raise AuthenticationError("API key is required")
     if len(api_key) > MAX_API_KEY_LENGTH:
         raise AuthenticationError("Invalid API key")
 
-    agent = storage.get_agent_by_key_hash(hash_api_key(api_key.strip()))
-    if agent is None:
+    client = storage.get_client_by_key_hash(hash_api_key(api_key.strip()))
+    if client is None:
         raise AuthenticationError("Invalid API key")
 
-    return AgentContext(
-        agent_id=agent["id"],
-        user_id=agent["user_id"],
-        project_id=agent["project_id"],
+    return ClientContext(
+        client_id=client["id"],
+        user_id=client["user_id"],
+        project_id=client["project_id"],
     )
 
 
-def validate_agent_project_access(
-    agent: AgentContext, requested_project_id: Optional[str]
+def validate_client_project_access(
+    client: ClientContext, requested_project_id: Optional[str]
 ) -> str:
-    """Return the project the agent may act on. An omitted project means its assigned one."""
-    if requested_project_id and requested_project_id != agent.project_id:
+    """Return the project the client may act on. An omitted project means its assigned one."""
+    if requested_project_id and requested_project_id != client.project_id:
         raise AuthorizationError(
-            f"Agent is not authorized for project {requested_project_id}"
+            f"Client is not authorized for project {requested_project_id}"
         )
-    return agent.project_id
+    return client.project_id
 
 
 def _elapsed_ms(started: float) -> int:
@@ -76,7 +76,7 @@ def authenticate_request(
     requested_project_id: Optional[str],
     key_required: bool,
     started: Optional[float] = None,
-) -> Optional[AgentContext]:
+) -> Optional[ClientContext]:
     """
     Authenticate a transport request, auditing any denial.
 
@@ -94,7 +94,7 @@ def authenticate_request(
         raise AuthenticationError("API key is required")
 
     try:
-        return authenticate_agent(api_key)
+        return authenticate_client(api_key)
     except AuthenticationError as exc:
         log_audit_event(
             tool_name, "denied", project_id=requested_project_id,
@@ -110,36 +110,36 @@ async def guarded_call(
     operation: Callable[[], Awaitable[T]],
 ) -> T:
     """
-    Authenticate, authorize, run the operation as that agent, and audit the outcome.
+    Authenticate, authorize, run the operation as that client, and audit the outcome.
 
-    Without an API key the call runs in local single-user mode (no agent, no audit)
+    Without an API key the call runs in local single-user mode (no client, no audit)
     unless REQUIRE_AUTH is set, in which case it is denied.
     """
     started = time.monotonic()
-    agent = authenticate_request(
+    client = authenticate_request(
         tool_name, api_key, requested_project_id, config.auth_required(), started
     )
-    if agent is None:
+    if client is None:
         return await operation()
-    return await run_as_agent(tool_name, agent, requested_project_id, operation, started)
+    return await run_as_client(tool_name, client, requested_project_id, operation, started)
 
 
-async def run_as_agent(
+async def run_as_client(
     tool_name: str,
-    agent: AgentContext,
+    client: ClientContext,
     requested_project_id: Optional[str],
     operation: Callable[[], Awaitable[T]],
     started: Optional[float] = None,
 ) -> T:
-    """Check the agent's project, run the operation as that agent, and audit the outcome."""
+    """Check the client's project, run the operation as that client, and audit the outcome."""
     started = time.monotonic() if started is None else started
 
     def elapsed_ms() -> int:
         return _elapsed_ms(started)
 
-    audit_ids = {"agent_id": agent.agent_id, "user_id": agent.user_id}
+    audit_ids = {"client_id": client.client_id, "user_id": client.user_id}
     try:
-        project_id = validate_agent_project_access(agent, requested_project_id)
+        project_id = validate_client_project_access(client, requested_project_id)
     except AuthorizationError as exc:
         log_audit_event(
             tool_name, "denied", project_id=requested_project_id,
@@ -147,7 +147,7 @@ async def run_as_agent(
         )
         raise
 
-    token = _current_agent.set(agent)
+    token = _current_client.set(client)
     try:
         result = await operation()
     except Exception as exc:
@@ -157,7 +157,7 @@ async def run_as_agent(
         )
         raise
     finally:
-        _current_agent.reset(token)
+        _current_client.reset(token)
 
     log_audit_event(
         tool_name, "success", project_id=project_id, duration_ms=elapsed_ms(), **audit_ids

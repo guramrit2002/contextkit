@@ -1,5 +1,6 @@
 """Configuration management for contextkit."""
 import os
+from pathlib import Path
 from typing import Optional
 
 # Load environment variables from .env file
@@ -8,6 +9,29 @@ try:
     load_dotenv()
 except ImportError:
     pass
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _resolve(env_var: str, default: str) -> Path:
+    # Relative paths come from the repo root, never the current directory, so every process
+    # (MCP server, Django from api/, tests) opens the same file.
+    configured = os.getenv(env_var)
+    if not configured:
+        return REPO_ROOT / default
+    path = Path(configured).expanduser()
+    return path if path.is_absolute() else (REPO_ROOT / path).resolve()
+
+
+def resolve_db_path() -> Path:
+    """Core's database: projects, decisions, state, sessions, audit_log."""
+    return _resolve("CONTEXTKIT_DB_PATH", "core.sqlite3")
+
+
+def resolve_django_db_path() -> Path:
+    """Django's database: clients, api_keys, auth. Core opens it read-only to verify keys."""
+    return _resolve("DJANGO_DB_PATH", "api/django.sqlite3")
 
 
 class Config:

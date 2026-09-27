@@ -1,23 +1,23 @@
-"""DRF authentication for agents using their API key. Verification lives in core.auth."""
+"""DRF authentication for API clients using their key. Verification lives in core.auth."""
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 
-from core.auth import AgentContext, authenticate_request
+from core.auth import ClientContext, authenticate_request
 from core.errors import AuthenticationError
 
 
-class AuthenticatedAgent:
-    """request.user for agent requests. Not a Django user; carries the agent's identity."""
+class AuthenticatedClient:
+    """request.user for client requests. Not a Django user; carries the client's identity."""
 
     is_authenticated = True
     is_anonymous = False
 
-    def __init__(self, context: AgentContext):
+    def __init__(self, context: ClientContext):
         self.context = context
-        self.pk = context.agent_id
+        self.pk = context.client_id
 
     def __str__(self) -> str:
-        return f"agent {self.context.agent_id}"
+        return f"client {self.context.client_id}"
 
 
 def bearer_token(request) -> str | None:
@@ -39,7 +39,7 @@ def requested_project_id(request) -> str | None:
     return project_id if isinstance(project_id, str) and project_id else None
 
 
-class AgentKeyAuthentication(BaseAuthentication):
+class ClientKeyAuthentication(BaseAuthentication):
     """
     Requires `Authorization: Bearer <key>` on every request; there is no keyless local mode
     over REST. Views set `audit_tool_name` so denials are audited under the right tool.
@@ -50,14 +50,14 @@ class AgentKeyAuthentication(BaseAuthentication):
         tool_name = getattr(view, "audit_tool_name", "rest_api")
         api_key = bearer_token(request)
         try:
-            agent = authenticate_request(
+            client = authenticate_request(
                 tool_name, api_key, requested_project_id(request), key_required=True
             )
         except AuthenticationError as exc:
             raise AuthenticationFailed(str(exc)) from exc
 
-        request.agent_context = agent
-        return AuthenticatedAgent(agent), api_key
+        request.client_context = client
+        return AuthenticatedClient(client), api_key
 
     def authenticate_header(self, request) -> str:
         # Makes DRF answer 401 (not 403) with a WWW-Authenticate challenge.

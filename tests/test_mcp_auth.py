@@ -1,42 +1,24 @@
 import sqlite3
-from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
 from fastmcp.exceptions import ToolError
-from sqlalchemy import create_engine
-from sqlalchemy.pool import NullPool
 
 from core import auth, storage
-from core.models import Agent, ApiKey, DjangoOwnedBase
 from mcp_server import auth_middleware, tools
 from mcp_server.server import mcp, setup_tools
 
-KEY = "ck_agent_key"
+KEY = "ck_client_key"
 
 
 @pytest.fixture()
-def db(tmp_path, monkeypatch):
+def db(tmp_path, monkeypatch, add_client):
     path = tmp_path / "contextkit.sqlite3"
     monkeypatch.setenv("CONTEXTKIT_DB_PATH", str(path))
     monkeypatch.delenv("REQUIRE_AUTH", raising=False)
     monkeypatch.delenv("CONTEXTKIT_API_KEY", raising=False)
     storage.init_db()
-    engine = create_engine(f"sqlite:///{path}", poolclass=NullPool)
-    DjangoOwnedBase.metadata.create_all(engine)
-    engine.dispose()
-
-    session = storage.get_session()
-    now = datetime.now(UTC)
-    session.add(Agent(
-        id="agent-1", user_id="alice", project_id="proj-1", name="builder",
-        created_at=now, updated_at=now,
-    ))
-    session.add(ApiKey(
-        id="key-1", agent_id="agent-1", key_hash=auth.hash_api_key(KEY), created_at=now,
-    ))
-    session.commit()
-    session.close()
+    add_client(user_id="alice", project_id="proj-1", api_key=KEY, client_id="client-1")
     setup_tools()
     return path
 
@@ -55,13 +37,13 @@ def http_headers(monkeypatch):
 def audit_rows(path):
     with sqlite3.connect(path) as conn:
         return conn.execute(
-            "SELECT tool_name, status, agent_id, project_id FROM audit_log ORDER BY timestamp"
+            "SELECT tool_name, status, client_id, project_id FROM audit_log ORDER BY timestamp"
         ).fetchall()
 
 
 def decision_rows(path):
     with sqlite3.connect(path) as conn:
-        return conn.execute("SELECT project_id, agent_id, user_id FROM decisions").fetchall()
+        return conn.execute("SELECT project_id, client_id, user_id FROM decisions").fetchall()
 
 
 LOG_DECISION = {"input": {"decision": "Use Alembic", "reasoning": "Versioned schema"}}
@@ -77,8 +59,8 @@ async def test_stdio_key_from_environment_authenticates_and_audits(db, monkeypat
     result = await mcp.call_tool("log_decision", LOG_DECISION)
 
     assert result.structured_content["success"] is True
-    assert decision_rows(db) == [("proj-1", "agent-1", "alice")]
-    assert audit_rows(db) == [("log_decision", "success", "agent-1", "proj-1")]
+    assert decision_rows(db) == [("proj-1", "client-1", "alice")]
+    assert audit_rows(db) == [("log_decision", "success", "client-1", "proj-1")]
 
 
 @pytest.mark.asyncio
@@ -125,7 +107,7 @@ async def test_other_project_is_denied_for_every_tool(db, monkeypatch):
         with pytest.raises(ToolError, match="not authorized for project proj-2"):
             await mcp.call_tool(tool_name, arguments)
 
-    assert audit_rows(db) == [(name, "denied", "agent-1", "proj-2") for name in calls]
+    assert audit_rows(db) == [(name, "denied", "client-1", "proj-2") for name in calls]
 
 
 @pytest.mark.asyncio
@@ -141,7 +123,7 @@ async def test_all_tools_work_for_assigned_project(db, monkeypatch, tmp_path):
 
     briefing = context.structured_content
     assert briefing["project"]["id"] == "proj-1"
-    assert briefing["recent_sessions"][0]["agent_id"] == "agent-1"
+    assert briefing["recent_sessions"][0]["client_id"] == "client-1"
     assert "`proj-1`" in output.read_text()
     assert [row[:2] for row in audit_rows(db)] == [
         ("log_decision", "success"),
@@ -159,7 +141,7 @@ async def test_tool_failure_is_audited_as_error(db, monkeypatch):
     with pytest.raises(ToolError):
         await mcp.call_tool("log_decision", {"input": {"decision": "  ", "reasoning": "r"}})
 
-    assert audit_rows(db) == [("log_decision", "error", "agent-1", "proj-1")]
+    assert audit_rows(db) == [("log_decision", "error", "client-1", "proj-1")]
 
 
 # HTTP: key only from the Authorization header
@@ -171,7 +153,7 @@ async def test_http_bearer_header_authenticates(db, http_headers):
 
     await mcp.call_tool("log_decision", LOG_DECISION)
 
-    assert decision_rows(db) == [("proj-1", "agent-1", "alice")]
+    assert decision_rows(db) == [("proj-1", "client-1", "alice")]
 
 
 @pytest.mark.asyncio
