@@ -66,6 +66,43 @@ def validate_agent_project_access(
     return agent.project_id
 
 
+def _elapsed_ms(started: float) -> int:
+    return int((time.monotonic() - started) * 1000)
+
+
+def authenticate_request(
+    tool_name: str,
+    api_key: Optional[str],
+    requested_project_id: Optional[str],
+    key_required: bool,
+    started: Optional[float] = None,
+) -> Optional[AgentContext]:
+    """
+    Authenticate a transport request, auditing any denial.
+
+    Returns None only for a keyless call when a key is not required (local mode).
+    """
+    started = time.monotonic() if started is None else started
+
+    if not api_key:
+        if not key_required:
+            return None
+        log_audit_event(
+            tool_name, "denied", project_id=requested_project_id,
+            error_message="API key is required", duration_ms=_elapsed_ms(started),
+        )
+        raise AuthenticationError("API key is required")
+
+    try:
+        return authenticate_agent(api_key)
+    except AuthenticationError as exc:
+        log_audit_event(
+            tool_name, "denied", project_id=requested_project_id,
+            error_message=str(exc), duration_ms=_elapsed_ms(started),
+        )
+        raise
+
+
 async def guarded_call(
     tool_name: str,
     api_key: Optional[str],
@@ -78,28 +115,27 @@ async def guarded_call(
     Without an API key the call runs in local single-user mode (no agent, no audit)
     unless REQUIRE_AUTH is set, in which case it is denied.
     """
-    start = time.monotonic()
+    started = time.monotonic()
+    agent = authenticate_request(
+        tool_name, api_key, requested_project_id, config.auth_required(), started
+    )
+    if agent is None:
+        return await operation()
+    return await run_as_agent(tool_name, agent, requested_project_id, operation, started)
+
+
+async def run_as_agent(
+    tool_name: str,
+    agent: AgentContext,
+    requested_project_id: Optional[str],
+    operation: Callable[[], Awaitable[T]],
+    started: Optional[float] = None,
+) -> T:
+    """Check the agent's project, run the operation as that agent, and audit the outcome."""
+    started = time.monotonic() if started is None else started
 
     def elapsed_ms() -> int:
-        return int((time.monotonic() - start) * 1000)
-
-    if not api_key:
-        if not config.auth_required():
-            return await operation()
-        log_audit_event(
-            tool_name, "denied", project_id=requested_project_id,
-            error_message="API key is required", duration_ms=elapsed_ms(),
-        )
-        raise AuthenticationError("API key is required")
-
-    try:
-        agent = authenticate_agent(api_key)
-    except AuthenticationError as exc:
-        log_audit_event(
-            tool_name, "denied", project_id=requested_project_id,
-            error_message=str(exc), duration_ms=elapsed_ms(),
-        )
-        raise
+        return _elapsed_ms(started)
 
     audit_ids = {"agent_id": agent.agent_id, "user_id": agent.user_id}
     try:

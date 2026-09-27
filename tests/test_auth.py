@@ -257,6 +257,32 @@ async def test_audit_write_failure_does_not_fail_the_call(make_agent, monkeypatc
     assert await auth.guarded_call("get_context", key, None, operation) == "done"
 
 
+def test_authenticate_request_requiring_key_denies_keyless_call(db_path):
+    with pytest.raises(AuthenticationError, match="required"):
+        auth.authenticate_request("get_context", None, "proj-1", key_required=True)
+
+    [row] = audit_rows(db_path)
+    assert (row["status"], row["agent_id"]) == ("denied", None)
+
+
+def test_authenticate_request_without_requirement_returns_none_for_keyless_call(db_path):
+    assert auth.authenticate_request("get_context", None, None, key_required=False) is None
+    assert audit_rows(db_path) == []
+
+
+@pytest.mark.asyncio
+async def test_run_as_agent_uses_already_authenticated_agent(make_agent, monkeypatch):
+    agent, _ = make_agent()
+    monkeypatch.setattr(storage, "get_agent_by_key_hash", pytest.fail)
+    calls, operation = recorder()
+
+    assert await auth.run_as_agent("get_context", agent, None, operation) == "done"
+
+    assert calls == [agent]
+    [row] = audit_rows(storage.get_db_path())
+    assert (row["status"], row["project_id"]) == ("success", "proj-1")
+
+
 # audit
 
 
