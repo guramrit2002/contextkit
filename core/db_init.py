@@ -6,12 +6,12 @@ from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import inspect
 
-from core.config import resolve_db_path
+from core.config import is_sqlite, resolve_database_url, resolve_db_path
 from core.storage import _alembic_config, get_engine, init_db
 
 logger = logging.getLogger(__name__)
 
-UPGRADE_COMMAND = "python3 -m uv run alembic upgrade head"
+UPGRADE_COMMAND = "alembic upgrade head"
 
 
 class SchemaStatus(NamedTuple):
@@ -30,17 +30,13 @@ class SchemaStatus(NamedTuple):
 
 
 def core_schema_status() -> SchemaStatus:
-    """Core database revision vs. the latest migration. Never creates the database file."""
+    """Core database revision vs. the latest migration. Never creates a SQLite file."""
     head = ScriptDirectory.from_config(_alembic_config()).get_current_head()
-    if not resolve_db_path().exists():
+    if is_sqlite(resolve_database_url()) and not resolve_db_path().exists():
         return SchemaStatus(None, head, has_tables=False)
-    engine = get_engine()
-    try:
-        with engine.connect() as conn:
-            current = MigrationContext.configure(conn).get_current_revision()
-            has_tables = inspect(conn).has_table("projects")
-    finally:
-        engine.dispose()
+    with get_engine().connect() as conn:
+        current = MigrationContext.configure(conn).get_current_revision()
+        has_tables = inspect(conn).has_table("projects")
     return SchemaStatus(current, head, has_tables)
 
 

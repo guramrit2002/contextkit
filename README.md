@@ -96,7 +96,47 @@ contextkit/
 └── tests/
 ```
 
-## Installation
+## Hosted (no install)
+
+Get an API key (`ck_...`) for your project, then add the hosted server to your agent. Nothing to clone or install. Every call is authenticated with your key, limited to that key's project, and audited.
+
+#### Claude Code
+
+```bash
+claude mcp add --transport http contextkit https://<name>.fastmcp.app/mcp \
+  --header "Authorization: Bearer ck_..."
+```
+
+#### Cursor
+
+Add to `~/.cursor/mcp.json` (or `.cursor/mcp.json` in the project):
+
+```json
+{
+  "mcpServers": {
+    "contextkit": {
+      "url": "https://<name>.fastmcp.app/mcp",
+      "headers": { "Authorization": "Bearer ck_..." }
+    }
+  }
+}
+```
+
+#### Codex
+
+Add to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.contextkit]
+url = "https://<name>.fastmcp.app/mcp"
+http_headers = { "Authorization" = "Bearer ck_..." }
+```
+
+Over HTTP, `export_markdown` returns the markdown instead of writing a file.
+
+## Installation (local)
+
+Run contextkit on your own machine with local SQLite storage.
 
 ### Requirements
 
@@ -109,7 +149,7 @@ contextkit/
 Clone and install contextkit:
 
 ```bash
-git clone https://github.com/anthropics/contextkit.git
+git clone https://github.com/guramrit2002/contextkit.git
 cd contextkit
 uv sync
 ```
@@ -208,8 +248,8 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 ## Support
 
 - 📖 **Documentation** — See [docs/](docs/) for detailed guides
-- 🐛 **Issues** — Found a bug? [Open an issue](https://github.com/anthropics/contextkit/issues)
-- 💬 **Discussions** — Questions? [Start a discussion](https://github.com/anthropics/contextkit/discussions)
+- 🐛 **Issues** — Found a bug? [Open an issue](https://github.com/guramrit2002/contextkit/issues)
+- 💬 **Discussions** — Questions? [Start a discussion](https://github.com/guramrit2002/contextkit/discussions)
 
 ## License
 

@@ -10,6 +10,13 @@ from core.models import ApiKey, Client, DjangoOwnedBase
 
 
 @pytest.fixture(autouse=True)
+def local_mode(monkeypatch):
+    """Tests run on SQLite in local mode, even though .env may hold a real DATABASE_URL."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("CONTEXTKIT_HOSTED", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def django_db_path(tmp_path, monkeypatch):
     """Every test gets its own (initially absent) Django database, never the real one."""
     path = tmp_path / "django.sqlite3"

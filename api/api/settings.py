@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 
 from core.config import resolve_django_db_path
@@ -94,8 +95,20 @@ WSGI_APPLICATION = 'api.wsgi.application'
 
 REPO_ROOT = BASE_DIR.parent
 
-DATABASES = {
-    'default': {
+if sys.argv[1:2] == ['test']:
+    # Tests run on local SQLite only, never the hosted database from .env. Cleared from the
+    # environment so core, running in this same process, follows too.
+    os.environ.pop('DATABASE_URL', None)
+    os.environ.pop('CONTEXTKIT_HOSTED', None)
+
+
+def database_settings(url):
+    """One hosted Postgres database for core and Django (ADR 026), else the local SQLite file."""
+    if url:
+        import dj_database_url
+
+        return dj_database_url.parse(url, conn_max_age=60, ssl_require=True)
+    return {
         'ENGINE': 'django.db.backends.sqlite3',
         # Django's own file (clients, api_keys, auth), separate from core's database. Core's
         # resolver is used so core reads keys from exactly this file.
@@ -103,7 +116,9 @@ DATABASES = {
         # A file, not in-memory, so core's read-only connection can see test clients too.
         'TEST': {'NAME': str(REPO_ROOT / 'test_django.sqlite3')},
     }
-}
+
+
+DATABASES = {'default': database_settings(os.getenv('DATABASE_URL', '').strip())}
 
 
 # Password validation

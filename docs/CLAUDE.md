@@ -44,7 +44,7 @@ contextkit/
 |---|---|
 | MCP server | Python 3.12, FastMCP |
 | Core | Plain Python, Pydantic, SQLAlchemy, Alembic |
-| Database | SQLite locally (`~/.contextkit/contextkit.db`) |
+| Database | SQLite locally, Postgres (Supabase) when hosted |
 | Django | Django + DRF (not active in step 1) |
 | Package manager | uv |
 | Tests | pytest |

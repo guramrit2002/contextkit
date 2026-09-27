@@ -34,6 +34,34 @@ def resolve_django_db_path() -> Path:
     return _resolve("DJANGO_DB_PATH", "api/django.sqlite3")
 
 
+POSTGRES_SCHEMES = ("postgres://", "postgresql://")
+POSTGRES_DRIVER = "postgresql+psycopg://"
+
+
+def _database_url_env() -> Optional[str]:
+    url = os.getenv("DATABASE_URL", "").strip()
+    if not url:
+        return None
+    for scheme in POSTGRES_SCHEMES:
+        if url.startswith(scheme):
+            return POSTGRES_DRIVER + url[len(scheme):]
+    return url
+
+
+def resolve_database_url() -> str:
+    """Core's database URL: DATABASE_URL when hosted, else the local SQLite file."""
+    return _database_url_env() or f"sqlite:///{resolve_db_path()}"
+
+
+def resolve_django_database_url() -> str:
+    """Django's database URL: the same DATABASE_URL (one database), else its SQLite file."""
+    return _database_url_env() or f"sqlite:///{resolve_django_db_path()}"
+
+
+def is_sqlite(url: str) -> bool:
+    return url.startswith("sqlite")
+
+
 class Config:
     """Application configuration loaded from environment variables."""
 
@@ -77,8 +105,15 @@ class Config:
         return cls.ENVIRONMENT.lower() == "production"
 
     @staticmethod
+    def is_hosted() -> bool:
+        """CONTEXTKIT_HOSTED=true marks a hosted server (ADR 026). Read per call."""
+        return os.getenv("CONTEXTKIT_HOSTED", "False").lower() == "true"
+
+    @staticmethod
     def auth_required() -> bool:
-        """Whether tool calls without an API key are rejected. Read per call so it can change."""
+        """Whether tool calls without an API key are rejected. Always true when hosted."""
+        if Config.is_hosted():
+            return True
         return os.getenv("REQUIRE_AUTH", "False").lower() == "true"
 
     @classmethod
