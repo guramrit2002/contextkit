@@ -15,8 +15,10 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path
+from django.urls import include, path
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    # Agent REST API (API key auth), the non-MCP equivalent of the MCP tools. ADR 024.
+    path('api/agent/v1/context/', include('context.urls')),
 ]

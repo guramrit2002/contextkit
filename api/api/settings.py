@@ -48,7 +48,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'rest_framework',
     'agents',
+    'context',
 ]
 
 MIDDLEWARE = [
@@ -102,6 +104,8 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': _contextkit_db_path(),
+        # A file, not in-memory, so core's own connection can see the test data too.
+        'TEST': {'NAME': str(REPO_ROOT / 'test_contextkit.sqlite3')},
     }
 }
 

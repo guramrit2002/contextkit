@@ -34,7 +34,7 @@ contextkit/
 1. **Core has no framework imports.** Never import Django or FastMCP inside `core/`.
 2. **Transports are thin.** Each MCP tool calls exactly one `core.services` function. No logic in `mcp_server/`.
 3. **Only core writes context tables.** `projects`, `decisions`, `state`, `sessions` are written exclusively through `core.storage`.
-4. **Django never sits on the write path.** Agent requests must not depend on Django being available.
+4. **Django writes context only through core.** Django may serve the agent REST API (`/api/agent/v1/`, ADR 024), but it must authenticate via `core.auth` and write context only through `core.services` (via `core.auth.run_as_agent`). MCP requests must never depend on Django being available.
 5. **MVT applies only to Django.** Core is a service layer, not MVT.
 6. **Business logic belongs in `services.py`.** Not in views, not in models.
 

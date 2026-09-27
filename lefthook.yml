@@ -15,9 +15,10 @@ pre-push:
       glob:
         - "*.py"
     
-    # Run Django tests
-    - run: cd api && python3 manage.py test
+    # Run Django tests in the project venv: Django views import core (SQLAlchemy, Alembic)
+    - run: cd api && python3 -m uv run --extra backend python manage.py test
       glob:
         - "api/**/*.py"
+        - "core/**/*.py"
 
     
