@@ -14,6 +14,7 @@ authors = [
 ]
 
 dependencies = [
+    "alembic>=1.20.0",
     "fastmcp>=0.1.0",
     "pydantic>=2.0",
     "sqlalchemy>=2.0",
@@ -39,7 +40,10 @@ Repository = "https://github.com/anthropics/contextkit"
 Documentation = "https://github.com/anthropics/contextkit"
 
 [tool.setuptools]
-packages = ["core", "mcp_server", "api"]
+packages = ["core", "core.migrations", "core.migrations.versions", "mcp_server", "api"]
+
+[tool.setuptools.package-data]
+"core.migrations" = ["script.py.mako"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -3,13 +3,19 @@ import os
 import subprocess
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Optional
 
-from sqlalchemy import create_engine, select
+from alembic import command
+from alembic.config import Config as AlembicConfig
+from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
-from core.models import Base, Decision, Project, State
+from core.models import Decision, Project, State
+
+MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
+BASELINE_REVISION = "0001"
 
 
 def get_db_path() -> str:
@@ -29,13 +35,26 @@ def get_engine():
     return create_engine(f"sqlite:///{db_path}", echo=False, poolclass=NullPool)
 
 
+def _alembic_config() -> AlembicConfig:
+    cfg = AlembicConfig()
+    cfg.set_main_option("script_location", str(MIGRATIONS_DIR))
+    cfg.set_main_option("sqlalchemy.url", f"sqlite:///{get_db_path()}")
+    return cfg
+
+
 def init_db():
-    """Initialize database tables."""
+    """Create or upgrade core tables to the latest migration."""
     engine = get_engine()
     try:
-        Base.metadata.create_all(engine)
+        tables = set(inspect(engine).get_table_names())
     finally:
         engine.dispose()
+
+    cfg = _alembic_config()
+    # Databases created by create_all() before Alembic have the baseline schema but no version.
+    if "projects" in tables and "alembic_version" not in tables:
+        command.stamp(cfg, BASELINE_REVISION)
+    command.upgrade(cfg, "head")
 
 
 def get_session() -> Session:
