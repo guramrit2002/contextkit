@@ -8,6 +8,10 @@ from core.config import config
 
 Base = declarative_base()
 
+# Tables owned and migrated by Django (api/agents). Core only reads them, so they live on a
+# separate metadata that Alembic never sees.
+DjangoOwnedBase = declarative_base()
+
 
 def utc_now() -> datetime:
     """Return a timezone-aware UTC timestamp."""
@@ -90,6 +94,30 @@ class Session(Base):
     created_at = Column(DateTime, default=utc_now, nullable=False)
 
     project = relationship("Project", back_populates="sessions")
+
+
+class Agent(DjangoOwnedBase):
+    """Read-only mapping of Django's agents table. Must match api/agents/models.py."""
+
+    __tablename__ = "agents"
+
+    id = Column(String(36), primary_key=True)
+    user_id = Column(String(255), nullable=False)
+    project_id = Column(String(500), nullable=False)
+    name = Column(String(255), nullable=False)
+    created_at = Column(DateTime, nullable=False)
+    updated_at = Column(DateTime, nullable=False)
+
+
+class ApiKey(DjangoOwnedBase):
+    """Read-only mapping of Django's api_keys table. Must match api/agents/models.py."""
+
+    __tablename__ = "api_keys"
+
+    id = Column(String(36), primary_key=True)
+    agent_id = Column(String(36), ForeignKey("agents.id"), nullable=False, unique=True)
+    key_hash = Column(String(64), nullable=False, unique=True)
+    created_at = Column(DateTime, nullable=False)
 
 
 class AuditLog(Base):

@@ -52,6 +52,11 @@ class Config:
         """Check if running in production mode."""
         return cls.ENVIRONMENT.lower() == "production"
 
+    @staticmethod
+    def auth_required() -> bool:
+        """Whether tool calls without an API key are rejected. Read per call so it can change."""
+        return os.getenv("REQUIRE_AUTH", "False").lower() == "true"
+
     @classmethod
     def get_db_path(cls) -> Optional[str]:
         """Get database path if configured."""

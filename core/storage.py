@@ -9,10 +9,12 @@ from typing import Any, Optional
 from alembic import command
 from alembic.config import Config as AlembicConfig
 from sqlalchemy import create_engine, inspect, select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
-from core.models import Decision, Project, State
+from core.errors import StorageError
+from core.models import Agent, ApiKey, AuditLog, Decision, Project, State
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 BASELINE_REVISION = "0001"
@@ -144,6 +146,7 @@ async def get_briefing(project_id: str) -> dict[str, Any]:
             "decisions": [
                 {
                     "id": d.id,
+                    "agent_id": d.agent_id,
                     "decision": d.decision,
                     "reasoning": d.reasoning,
                     "alternatives_considered": d.alternatives_considered,
@@ -162,6 +165,7 @@ async def get_briefing(project_id: str) -> dict[str, Any]:
                 {
                     "id": s.id,
                     "project_id": s.project_id,
+                    "agent_id": s.agent_id,
                     "summary": s.summary,
                     "decisions_made": s.decisions_made,
                     "created_at": s.created_at.isoformat(),
@@ -173,11 +177,18 @@ async def get_briefing(project_id: str) -> dict[str, Any]:
         session.close()
 
 
+def _owner(user_id: Optional[str]) -> dict[str, str]:
+    # Omit when unknown so the column default (config user) applies instead of NULL.
+    return {"user_id": user_id} if user_id else {}
+
+
 async def create_decision(
     project_id: str,
     decision: str,
     reasoning: str,
     alternatives_considered: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """Store a decision in the database."""
     session = get_session()
@@ -189,9 +200,11 @@ async def create_decision(
         new_decision = Decision(
             id=decision_id,
             project_id=project_id,
+            agent_id=agent_id,
             decision=decision,
             reasoning=reasoning,
             alternatives_considered=alternatives_considered,
+            **_owner(user_id),
         )
         session.add(new_decision)
         session.commit()
@@ -199,6 +212,8 @@ async def create_decision(
         return {
             "id": decision_id,
             "project_id": project_id,
+            "agent_id": agent_id,
+            "user_id": new_decision.user_id,
             "decision": decision,
             "reasoning": reasoning,
             "alternatives_considered": alternatives_considered,
@@ -213,6 +228,7 @@ async def update_state(
     progress: str,
     next_steps: str,
     blockers: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """Update the current state in the database."""
     session = get_session()
@@ -229,6 +245,8 @@ async def update_state(
             state.next_steps = next_steps
             state.blockers = blockers
             state.updated_at = datetime.now(UTC)
+            if user_id:
+                state.user_id = user_id
         else:
             state = State(
                 id=str(uuid.uuid4()),
@@ -236,6 +254,7 @@ async def update_state(
                 progress=progress,
                 next_steps=next_steps,
                 blockers=blockers,
+                **_owner(user_id),
             )
             session.add(state)
 
@@ -257,6 +276,8 @@ async def create_session(
     project_id: str,
     summary: str,
     decisions_made: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """Store a session summary in the database."""
     from core.models import Session as SessionModel
@@ -270,8 +291,10 @@ async def create_session(
         new_session = SessionModel(
             id=session_id,
             project_id=project_id,
+            agent_id=agent_id,
             summary=summary,
             decisions_made=decisions_made,
+            **_owner(user_id),
         )
         session_db.add(new_session)
         session_db.commit()
@@ -279,6 +302,8 @@ async def create_session(
         return {
             "id": session_id,
             "project_id": project_id,
+            "agent_id": agent_id,
+            "user_id": new_session.user_id,
             "summary": summary,
             "decisions_made": decisions_made,
             "created_at": new_session.created_at.isoformat(),
@@ -342,5 +367,64 @@ async def export_markdown(project_id: str) -> str:
             markdown += "(No sessions recorded yet)\n\n"
 
         return markdown
+    finally:
+        session.close()
+
+
+def get_agent_by_key_hash(key_hash: str) -> Optional[dict[str, Any]]:
+    """Look up the agent that owns an API key hash (api_keys joined to agents)."""
+    session = get_session()
+    try:
+        stmt = (
+            select(Agent)
+            .join(ApiKey, ApiKey.agent_id == Agent.id)
+            .where(ApiKey.key_hash == key_hash)
+        )
+        agent = session.execute(stmt).scalar_one_or_none()
+    except DBAPIError as exc:
+        if not inspect(session.get_bind()).has_table("api_keys"):
+            raise StorageError(
+                "Agent tables not found. Run `python manage.py migrate` in api/ "
+                "to create them before using API keys."
+            ) from exc
+        raise
+    finally:
+        session.close()
+
+    if agent is None:
+        return None
+    return {
+        "id": agent.id,
+        "user_id": agent.user_id,
+        "project_id": agent.project_id,
+        "name": agent.name,
+    }
+
+
+def create_audit_log_entry(
+    tool_name: str,
+    status: str,
+    agent_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    error_message: Optional[str] = None,
+    duration_ms: Optional[int] = None,
+) -> str:
+    """Append one audit_log row and return its id."""
+    session = get_session()
+    try:
+        entry = AuditLog(
+            id=str(uuid.uuid4()),
+            agent_id=agent_id,
+            tool_name=tool_name,
+            project_id=project_id,
+            user_id=user_id,
+            status=status,
+            error_message=error_message,
+            duration_ms=duration_ms,
+        )
+        session.add(entry)
+        session.commit()
+        return entry.id
     finally:
         session.close()

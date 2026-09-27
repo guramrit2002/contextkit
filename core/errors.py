@@ -35,3 +35,11 @@ class ValidationError(ContextKitError):
     """Raised when input validation fails."""
 
     pass
+
+
+class AuthenticationError(ContextKitError):
+    """Raised when an API key is missing or does not match an agent."""
+
+
+class AuthorizationError(ContextKitError, PermissionError):
+    """Raised when an authenticated agent requests a project it is not assigned to."""

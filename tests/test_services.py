@@ -37,6 +37,7 @@ async def test_project_briefing_includes_state_decisions_and_recent_sessions(iso
     assert briefing["decisions"] == [
         {
             "id": decision["id"],
+            "agent_id": None,
             "decision": "Use SQLite first",
             "reasoning": "It keeps local setup simple",
             "alternatives_considered": "PostgreSQL",
@@ -49,6 +50,7 @@ async def test_project_briefing_includes_state_decisions_and_recent_sessions(iso
         {
             "id": session["id"],
             "project_id": project_id,
+            "agent_id": None,
             "summary": "Built the storage layer",
             "decisions_made": "Kept the MCP layer thin",
             "created_at": session["created_at"],
