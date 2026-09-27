@@ -1,4 +1,5 @@
 import hashlib
+import os
 import re
 from io import StringIO
 from unittest import mock
@@ -133,6 +134,29 @@ class DatabasePathTests(SimpleTestCase):
         # Test runs swap NAME for the test DB, so compare the resolver Django is configured with.
         self.assertIs(project_settings.resolve_django_db_path, resolve_django_db_path)
         self.assertEqual(project_settings.REPO_ROOT, REPO_ROOT)
+
+    def test_database_url_selects_postgres_with_ssl_and_persistent_connections(self):
+        db = project_settings.database_settings(
+            "postgresql://postgres.ref:pw@aws-0-ap.pooler.supabase.com:5432/postgres"
+        )
+
+        self.assertEqual(db["ENGINE"], "django.db.backends.postgresql")
+        self.assertEqual((db["HOST"], db["PORT"]), ("aws-0-ap.pooler.supabase.com", 5432))
+        self.assertEqual(db["CONN_MAX_AGE"], 60)
+        self.assertEqual(db["OPTIONS"]["sslmode"], "require")
+
+    def test_no_database_url_keeps_the_local_sqlite_file(self):
+        db = project_settings.database_settings("")
+
+        self.assertEqual(db["ENGINE"], "django.db.backends.sqlite3")
+        self.assertEqual(db["NAME"], resolve_django_db_path())
+
+    def test_test_runs_never_use_the_hosted_database(self):
+        # settings.py drops DATABASE_URL for `manage.py test`, even when .env sets it.
+        self.assertNotIn("DATABASE_URL", os.environ)
+        self.assertEqual(
+            project_settings.DATABASES["default"]["ENGINE"], "django.db.backends.sqlite3"
+        )
 
 
 class LegacyAgentsMigrationTests(TransactionTestCase):

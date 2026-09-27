@@ -20,9 +20,9 @@ def _database_url() -> str:
     url = config.get_main_option("sqlalchemy.url")
     if url:
         return url
-    from core.storage import get_db_path
+    from core.config import resolve_database_url
 
-    return f"sqlite:///{get_db_path()}"
+    return resolve_database_url()
 
 
 def run_migrations_offline() -> None:

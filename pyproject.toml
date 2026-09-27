@@ -15,8 +15,10 @@ authors = [
 
 dependencies = [
     "alembic>=1.20.0",
-    "fastmcp>=0.1.0",
+    "fastmcp>=4,<5",
+    "psycopg[binary]>=3.1",
     "pydantic>=2.0",
+    "python-dotenv>=1.0",
     "sqlalchemy>=2.0",
 ]
 
@@ -32,12 +34,13 @@ dev = [
 backend = [
     "django>=4.2",
     "djangorestframework>=3.14",
+    "dj-database-url>=2.1",
     "python-dotenv>=1.0",
 ]
 
 [project.urls]
-Repository = "https://github.com/anthropics/contextkit"
-Documentation = "https://github.com/anthropics/contextkit"
+Repository = "https://github.com/guramrit2002/contextkit"
+Documentation = "https://github.com/guramrit2002/contextkit"
 
 [tool.setuptools]
 packages = ["core", "core.migrations", "core.migrations.versions", "mcp_server", "api"]
@@ -47,6 +50,7 @@ packages = ["core", "core.migrations", "core.migrations.versions", "mcp_server",
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 python_files = ["test_*.py", "*_test.py"]
 addopts = "--cov=core --cov=mcp_server --cov-report=term-missing"
 

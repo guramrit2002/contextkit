@@ -8,44 +8,64 @@ from typing import Any, Optional
 
 from alembic import command
 from alembic.config import Config as AlembicConfig
-from sqlalchemy import create_engine, inspect, select
+from sqlalchemy import Engine, create_engine, inspect, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
-from core.config import resolve_db_path, resolve_django_db_path
-from core.errors import StorageError
+from core.config import (
+    config,
+    is_sqlite,
+    resolve_database_url,
+    resolve_db_path,
+    resolve_django_database_url,
+    resolve_django_db_path,
+)
+from core.errors import StorageError, ValidationError
 from core.models import ApiKey, AuditLog, Client, Decision, Project, State
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 BASELINE_REVISION = "0001"
+URL_PREFIXES = ("http://", "https://", "git@", "ssh://")
+
+# One engine (and pool) per database URL per process. Keyed by URL so tests that switch
+# databases through the environment still get the right one.
+_engines: dict[str, Engine] = {}
+_sessionmakers: dict[str, sessionmaker] = {}
 
 
 def get_db_path() -> str:
-    """Get the path to the contextkit database."""
+    """Get the path to the local SQLite contextkit database."""
     return str(resolve_db_path())
 
 
-def get_engine():
-    """Get SQLAlchemy engine."""
-    db_path = get_db_path()
-    return create_engine(f"sqlite:///{db_path}", echo=False, poolclass=NullPool)
+def _new_engine(url: str) -> Engine:
+    if is_sqlite(url):
+        return create_engine(url, echo=False, poolclass=NullPool)
+    # Small pool: the Supabase session pooler caps connections per project.
+    return create_engine(url, echo=False, pool_size=5, max_overflow=5, pool_pre_ping=True)
+
+
+def get_engine() -> Engine:
+    """The shared engine for core's database. Never dispose it; it is reused."""
+    url = resolve_database_url()
+    engine = _engines.get(url)
+    if engine is None:
+        engine = _engines[url] = _new_engine(url)
+    return engine
 
 
 def _alembic_config() -> AlembicConfig:
     cfg = AlembicConfig()
     cfg.set_main_option("script_location", str(MIGRATIONS_DIR))
-    cfg.set_main_option("sqlalchemy.url", f"sqlite:///{get_db_path()}")
+    # Alembic's config uses ConfigParser interpolation: escape URL-encoded "%" in passwords.
+    cfg.set_main_option("sqlalchemy.url", resolve_database_url().replace("%", "%%"))
     return cfg
 
 
 def init_db():
     """Create or upgrade core tables to the latest migration."""
-    engine = get_engine()
-    try:
-        tables = set(inspect(engine).get_table_names())
-    finally:
-        engine.dispose()
+    tables = set(inspect(get_engine()).get_table_names())
 
     cfg = _alembic_config()
     # Databases created by create_all() before Alembic have the baseline schema but no version.
@@ -55,14 +75,19 @@ def init_db():
 
 
 def get_session() -> Session:
-    """Get a database session."""
-    engine = get_engine()
-    SessionLocal = sessionmaker(bind=engine)
-    return SessionLocal()
+    """Get a database session on the shared engine."""
+    url = resolve_database_url()
+    maker = _sessionmakers.get(url)
+    if maker is None:
+        maker = _sessionmakers[url] = sessionmaker(bind=get_engine())
+    return maker()
 
 
 def detect_project_id() -> str:
-    """Detect project ID from git remote or current directory."""
+    """Detect project ID from git remote or current directory (local mode only)."""
+    if config.is_hosted():
+        # The server's own clone and working directory say nothing about the caller's project.
+        raise ValidationError("project_id is required")
     try:
         remote_url = subprocess.check_output(
             ["git", "config", "--get", "remote.origin.url"], text=True, cwd=os.getcwd()
@@ -81,19 +106,24 @@ def get_or_create_project(project_id: str, session: Session) -> Project:
     project = session.execute(stmt).scalar_one_or_none()
 
     if not project:
-        # Create new project
-        try:
-            git_remote = subprocess.check_output(
-                ["git", "config", "--get", "remote.origin.url"], text=True
-            ).strip()
-        except Exception:
-            git_remote = None
+        if config.is_hosted():
+            # Never record the server's own git remote or paths for a caller's project.
+            git_remote = project_id if project_id.startswith(URL_PREFIXES) else None
+            local_path = None
+        else:
+            try:
+                git_remote = subprocess.check_output(
+                    ["git", "config", "--get", "remote.origin.url"], text=True
+                ).strip()
+            except Exception:
+                git_remote = None
+            local_path = os.getcwd()
 
         project = Project(
             id=project_id,
             name=os.path.basename(project_id),
             git_remote=git_remote,
-            local_path=os.getcwd(),
+            local_path=local_path,
         )
         session.add(project)
         session.commit()
@@ -366,8 +396,13 @@ async def export_markdown(project_id: str) -> str:
         session.close()
 
 
-def get_django_engine():
-    """Read-only engine on Django's database, where clients and api_keys live."""
+def get_django_engine() -> Engine:
+    """
+    Engine for Django's tables (clients, api_keys). Locally a separate, one-off read-only
+    SQLite engine; on Postgres the shared core engine, since both live in one database.
+    """
+    if not is_sqlite(resolve_django_database_url()):
+        return get_engine()
     path = resolve_django_db_path()
     # mode=ro: core never writes Django's tables, and a missing file is an error rather than
     # SQLite silently creating an empty database.
@@ -377,16 +412,28 @@ def get_django_engine():
 
 
 def _client_tables_missing(engine) -> bool:
-    if not resolve_django_db_path().exists():
+    if is_sqlite(resolve_django_database_url()) and not resolve_django_db_path().exists():
         return True
     return not inspect(engine).has_table("api_keys")
 
 
+def _django_database_label() -> str:
+    # Never include DATABASE_URL itself: it carries the password.
+    if is_sqlite(resolve_django_database_url()):
+        return str(resolve_django_db_path())
+    return "the DATABASE_URL database"
+
+
 def get_client_by_key_hash(key_hash: str) -> Optional[dict[str, Any]]:
     """Look up the client that owns an API key hash (api_keys joined to clients)."""
+    sqlite = is_sqlite(resolve_django_database_url())
     engine = get_django_engine()
     session = Session(bind=engine)
     try:
+        if not sqlite:
+            # Postgres counterpart of SQLite's mode=ro: this transaction cannot write, so core
+            # never writes Django's tables. Per transaction, so it works through the pooler.
+            session.execute(text("SET TRANSACTION READ ONLY"))
         stmt = (
             select(Client)
             .join(ApiKey, ApiKey.client_id == Client.id)
@@ -394,15 +441,18 @@ def get_client_by_key_hash(key_hash: str) -> Optional[dict[str, Any]]:
         )
         client = session.execute(stmt).scalar_one_or_none()
     except DBAPIError as exc:
+        session.rollback()
         if _client_tables_missing(engine):
             raise StorageError(
-                f"Client tables not found in {resolve_django_db_path()}. Run "
-                "`python manage.py migrate` in api/ (with the same DJANGO_DB_PATH) first."
+                f"Client tables not found in {_django_database_label()}. Run "
+                "`python manage.py migrate` in api/ with the same DATABASE_URL "
+                "(or DJANGO_DB_PATH for local SQLite) first."
             ) from exc
         raise
     finally:
         session.close()
-        engine.dispose()
+        if sqlite:
+            engine.dispose()
 
     if client is None:
         return None

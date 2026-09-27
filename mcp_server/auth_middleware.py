@@ -19,6 +19,11 @@ def _http_headers() -> Optional[dict[str, str]]:
     return {name.lower(): value for name, value in request.headers.items()}
 
 
+def is_http_request() -> bool:
+    """True when the current tool call arrived over HTTP rather than stdio."""
+    return _http_headers() is not None
+
+
 def resolve_api_key() -> Optional[str]:
     """
     Over HTTP the key comes only from `Authorization: Bearer <key>`. The server's own

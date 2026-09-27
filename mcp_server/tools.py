@@ -4,7 +4,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from mcp_server.auth_middleware import require_auth
+from mcp_server.auth_middleware import is_http_request, require_auth
+
+HTTP_OUTPUT_PATH_ERROR = "output_path is not supported over HTTP; use the returned markdown"
 
 
 class GetContextInput(BaseModel):
@@ -125,6 +127,8 @@ async def export_markdown(input: ExportMarkdownInput) -> dict[str, Any]:
     """Export the project context as a readable markdown file."""
     from core import services
 
+    if input.output_path and is_http_request():
+        raise ValueError(HTTP_OUTPUT_PATH_ERROR)
     markdown_content = await services.export_markdown(input.project_id)
     if input.output_path:
         output_path = Path(input.output_path).expanduser()
@@ -149,6 +153,9 @@ async def export_markdown_flat(
         project_id = input.project_id
         output_path = input.output_path
 
+    if output_path and is_http_request():
+        # The server's filesystem is not the caller's; never write files for HTTP callers.
+        raise ValueError(HTTP_OUTPUT_PATH_ERROR)
     markdown_content = await services.export_markdown(project_id)
     if output_path:
         output = Path(output_path).expanduser()
