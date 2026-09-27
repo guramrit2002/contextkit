@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from mcp_server.auth_middleware import require_auth
+
 
 class GetContextInput(BaseModel):
     """Input for get_context tool."""
@@ -49,6 +51,7 @@ class ExportMarkdownInput(BaseModel):
     output_path: str | None = Field(None, description="Path to save the markdown file")
 
 
+@require_auth("get_context")
 async def get_context(input: GetContextInput) -> dict[str, Any]:
     """
     Return the project briefing for the agent to load.
@@ -62,6 +65,7 @@ async def get_context(input: GetContextInput) -> dict[str, Any]:
     return briefing
 
 
+@require_auth("get_context")
 async def get_context_flat(
     project_id: str | None = None,
 ) -> dict[str, Any]:
@@ -75,6 +79,7 @@ async def get_context_flat(
     return await services.get_briefing(project_id)
 
 
+@require_auth("log_decision")
 async def log_decision(input: LogDecisionInput) -> dict[str, Any]:
     """Record a decision and its reasoning."""
     from core import services
@@ -88,6 +93,7 @@ async def log_decision(input: LogDecisionInput) -> dict[str, Any]:
     return {"success": True, "decision_id": decision_record.get("id")}
 
 
+@require_auth("update_state")
 async def update_state(input: UpdateStateInput) -> dict[str, Any]:
     """Replace the current state: progress, next steps, blockers."""
     from core import services
@@ -101,6 +107,7 @@ async def update_state(input: UpdateStateInput) -> dict[str, Any]:
     return {"success": True}
 
 
+@require_auth("log_session")
 async def log_session(input: LogSessionInput) -> dict[str, Any]:
     """Append a summary of the work session."""
     from core import services
@@ -113,6 +120,7 @@ async def log_session(input: LogSessionInput) -> dict[str, Any]:
     return {"success": True, "session_id": session_record.get("id")}
 
 
+@require_auth("export_markdown")
 async def export_markdown(input: ExportMarkdownInput) -> dict[str, Any]:
     """Export the project context as a readable markdown file."""
     from core import services
@@ -128,6 +136,7 @@ async def export_markdown(input: ExportMarkdownInput) -> dict[str, Any]:
     return {"success": True, "markdown": markdown_content}
 
 
+@require_auth("export_markdown")
 async def export_markdown_flat(
     input: ExportMarkdownInput | None = None,
     project_id: str | None = None,
