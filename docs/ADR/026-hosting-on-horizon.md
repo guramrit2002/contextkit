@@ -4,6 +4,8 @@
 
 **Amends:** ADR 008 (database layout), ADR 015 (local storage location), ADR 019 (transport)
 
+> **Hosting platform superseded by [ADR 027](027-hosting-on-render.md):** the server runs on Render, because Horizon's authentication could not be turned off on the free plan. The rest of this ADR (one Postgres database, `CONTEXTKIT_HOSTED`, API keys only, migrations as a deploy step) still applies.
+
 ## Context
 
 The goal is a zero-install experience: a user gets an API key from the contextkit platform and adds a remote MCP URL to their agent (Claude Code, Cursor, Codex). No clone, no Python, no local database.

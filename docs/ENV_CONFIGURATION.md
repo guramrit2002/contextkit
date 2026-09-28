@@ -50,13 +50,6 @@ CONTEXTKIT_DB_PATH=/data/contextkit.db
 CONTEXTKIT_DB_PATH=~/.contextkit/contextkit.db
 ```
 
-### MCP Server Configuration
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `MCP_HOST` | `localhost` | MCP server bind address |
-| `MCP_PORT` | `5000` | MCP server port |
-
 ### Feature Flags
 
 | Variable | Default | Purpose |
@@ -199,7 +192,7 @@ MAX_BRIEFING_TOKENS=4000
 user_id = Column(String(255), default="default_user")
 
 # api/api/settings.py
-SECRET_KEY = 'django-insecure-2l&vja(!kz7#b7-9liiu49689)pdt8upo=sv3h!ophzre%60o*'
+SECRET_KEY = 'django-insecure-<redacted>'
 DEBUG = True
 ALLOWED_HOSTS = []
 ```

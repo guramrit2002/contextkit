@@ -1,0 +1,30 @@
+# Secrets and local state never go into an image. Patterns use **/ so they match in every
+# folder (a bare ".env" only matches the build-context root).
+**/.env
+**/.env.*
+!.env.example
+**/*.sqlite3
+**/*.sqlite3-*
+**/*.sqlite3.*
+**/*.db
+**/.claude/
+
+# Tooling, caches, and anything the image doesn't run.
+.git/
+**/.venv/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+**/*.egg-info/
+**/staticfiles/
+mcp_server/
+server.py
+requirements.txt
+tests/
+docs/
+**/*.md
+lefthook.yml
