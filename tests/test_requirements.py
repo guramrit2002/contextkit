@@ -12,7 +12,7 @@ REGENERATE = (
 )
 # Extras of runtime dependencies that pull in a separately named package.
 EXTRA_PACKAGES = {("psycopg", "binary"): "psycopg-binary"}
-# Horizon only runs the MCP server; these belong to the Django backend or local tooling.
+# The hosted server only runs the MCP server; these belong to the Django backend or local tooling.
 NOT_DEPLOYED = {"django", "djangorestframework", "dj-database-url", "pytest", "ruff", "mypy"}
 
 

@@ -73,10 +73,6 @@ class Config:
     # Database configuration
     CONTEXTKIT_DB_PATH: Optional[str] = os.getenv("CONTEXTKIT_DB_PATH")
 
-    # MCP server configuration
-    MCP_HOST: str = os.getenv("MCP_HOST", "localhost")
-    MCP_PORT: int = int(os.getenv("MCP_PORT", "5000"))
-
     # Feature flags
     ENABLE_SESSION_COMPACTION: bool = (
         os.getenv("ENABLE_SESSION_COMPACTION", "False").lower() == "true"
