@@ -1,0 +1,38 @@
+# contextkit Django backend. Reads .env (DATABASE_URL, DJANGO_SECRET_KEY, ...) from this folder.
+# The MCP server is not here: it runs on Render (ADR 027).
+#
+#   docker compose build
+#   docker compose run --rm migrate      # deploy step: core (Alembic) then Django migrations
+#   docker compose up -d                 # api on 127.0.0.1:8002 (admin at /admin/)
+#   docker compose run --rm api python manage.py create_client --project-id <id> --name <name>
+
+x-env: &env
+  DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env (Supabase session pooler URL)}
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY in .env}
+
+services:
+  api:
+    build: .
+    image: contextkit-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *env
+      DJANGO_DEBUG: "false"
+    ports:
+      - "127.0.0.1:8002:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), 2)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # One-off deploy step, never started by `up`: migrations must not race between replicas.
+  migrate:
+    image: contextkit-api
+    profiles: ["tools"]
+    env_file: .env
+    environment: *env
+    working_dir: /app
+    command: ["sh", "-c", "alembic upgrade head && cd api && python manage.py migrate --noinput"]

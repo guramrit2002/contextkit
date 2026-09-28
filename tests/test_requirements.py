@@ -1,63 +1,78 @@
-"""requirements.txt (the hosted install) must stay in sync with pyproject.toml."""
+"""The pinned deploy files must stay in sync with pyproject.toml.
+
+- requirements.txt:     the hosted MCP server's install on Render (runtime only).
+- requirements-api.txt: the Django Docker image (runtime + the `backend` extra).
+"""
 import tomllib
 
+import pytest
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
 from core.config import REPO_ROOT
 
-REGENERATE = (
-    "Regenerate it: uv export --format requirements-txt --no-emit-project --no-hashes "
-    "-o requirements.txt"
-)
-# Extras of runtime dependencies that pull in a separately named package.
+EXPORT = "uv export --format requirements-txt --no-emit-project --no-hashes"
+REGENERATE = {
+    "requirements.txt": f"{EXPORT} -o requirements.txt",
+    "requirements-api.txt": f"{EXPORT} --extra backend -o requirements-api.txt",
+}
+# Extras of dependencies that pull in a separately named package.
 EXTRA_PACKAGES = {("psycopg", "binary"): "psycopg-binary"}
-# The hosted server only runs the MCP server; these belong to the Django backend or local tooling.
-NOT_DEPLOYED = {"django", "djangorestframework", "dj-database-url", "pytest", "ruff", "mypy"}
+DEV_TOOLS = {"pytest", "pytest-cov", "pytest-asyncio", "ruff", "mypy"}
+BACKEND_ONLY = {"django", "djangorestframework", "dj-database-url", "gunicorn", "whitenoise"}
 
 
-def runtime_dependencies() -> list[Requirement]:
-    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
-    return [Requirement(dep) for dep in pyproject["project"]["dependencies"]]
+def pyproject() -> dict:
+    return tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
 
 
-def pinned_versions() -> dict[str, str]:
+def expected_dependencies(filename: str) -> list[Requirement]:
+    project = pyproject()["project"]
+    deps = list(project["dependencies"])
+    if filename == "requirements-api.txt":
+        deps += project["optional-dependencies"]["backend"]
+    return [Requirement(dep) for dep in deps]
+
+
+def pinned_versions(filename: str) -> dict[str, str]:
     pins = {}
-    for line in (REPO_ROOT / "requirements.txt").read_text().splitlines():
+    for line in (REPO_ROOT / filename).read_text().splitlines():
         line = line.split("#", 1)[0].strip()
         if not line:
             continue
         requirement = Requirement(line)
         [spec] = requirement.specifier
-        assert spec.operator == "==", f"{line!r} is not pinned to an exact version"
+        assert spec.operator == "==", f"{filename}: {line!r} is not pinned to an exact version"
         pins[canonicalize_name(requirement.name)] = spec.version
     return pins
 
 
-def test_every_runtime_dependency_is_pinned_within_its_range():
-    pins = pinned_versions()
+@pytest.mark.parametrize("filename", REGENERATE)
+def test_every_dependency_is_pinned_within_its_range(filename):
+    pins = pinned_versions(filename)
+    hint = f"Regenerate it: {REGENERATE[filename]}"
 
-    for dep in runtime_dependencies():
+    for dep in expected_dependencies(filename):
         name = canonicalize_name(dep.name)
-        assert name in pins, (
-            f"{dep.name} is in pyproject.toml but not requirements.txt. {REGENERATE}"
-        )
+        assert name in pins, f"{dep.name} is in pyproject.toml but not {filename}. {hint}"
         assert dep.specifier.contains(pins[name], prereleases=True), (
-            f"requirements.txt pins {dep.name}=={pins[name]}, outside {dep.specifier}. "
-            f"{REGENERATE}"
+            f"{filename} pins {dep.name}=={pins[name]}, outside {dep.specifier}. {hint}"
         )
         for extra in dep.extras:
             package = EXTRA_PACKAGES.get((name, extra))
             if package:
-                assert package in pins, f"{dep.name}[{extra}] needs {package}. {REGENERATE}"
+                assert package in pins, f"{dep.name}[{extra}] needs {package}. {hint}"
 
 
-def test_backend_and_dev_tools_are_not_deployed():
-    assert not NOT_DEPLOYED & set(pinned_versions()), (
-        "requirements.txt is for the hosted MCP server only; export without extras. "
-        + REGENERATE
+@pytest.mark.parametrize("filename", REGENERATE)
+def test_dev_tools_are_never_deployed(filename):
+    assert not DEV_TOOLS & set(pinned_versions(filename)), (
+        f"{filename} must not include dev tools. Regenerate it: {REGENERATE[filename]}"
     )
 
 
-def test_every_line_is_pinned():
-    assert pinned_versions()
+def test_mcp_image_has_no_django():
+    assert not BACKEND_ONLY & set(pinned_versions("requirements.txt")), (
+        "requirements.txt is the MCP server install only; export without extras. "
+        f"Regenerate it: {REGENERATE['requirements.txt']}"
+    )

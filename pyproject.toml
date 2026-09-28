@@ -35,7 +35,9 @@ backend = [
     "django>=4.2",
     "djangorestframework>=3.14",
     "dj-database-url>=2.1",
+    "gunicorn>=23",
     "python-dotenv>=1.0",
+    "whitenoise>=6.6",
 ]
 
 [project.urls]
