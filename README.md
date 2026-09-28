@@ -157,6 +157,21 @@ cd api && python manage.py migrate
 
 The server refuses to start if the database is behind. Create API keys with `python manage.py create_client --project-id <git remote> --name <name>` (also with `DATABASE_URL` set).
 
+## Backend in Docker
+
+The Django backend (admin, API key issuing, and the agent REST API at `/api/agent/v1/`) ships as a Docker image. The MCP server is deployed separately (see above). Both use the database in `DATABASE_URL`.
+
+```bash
+cp .env.example .env              # set DATABASE_URL and DJANGO_SECRET_KEY (single-quoted)
+docker compose build
+docker compose run --rm migrate   # core (Alembic) then Django migrations; run on every deploy
+docker compose up -d              # http://127.0.0.1:8002/admin/
+docker compose run --rm api python manage.py createsuperuser
+docker compose run --rm api python manage.py create_client --project-id <git remote> --name <name>
+```
+
+The container listens on port 8000 and publishes it only on `127.0.0.1:8002`. Put a reverse proxy in front for HTTPS, and set `DJANGO_ALLOWED_HOSTS`, `DJANGO_CSRF_TRUSTED_ORIGINS` and `DJANGO_BEHIND_PROXY=true` for your domain.
+
 ## Installation (local)
 
 Run contextkit on your own machine with local SQLite storage.
