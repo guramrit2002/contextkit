@@ -103,7 +103,7 @@ Get an API key (`ck_...`) for your project, then add the hosted server to your a
 #### Claude Code
 
 ```bash
-claude mcp add --transport http contextkit https://<name>.fastmcp.app/mcp \
+claude mcp add --transport http contextkit https://contextkit.onrender.com/mcp \
   --header "Authorization: Bearer ck_..."
 ```
 
@@ -115,7 +115,7 @@ Add to `~/.cursor/mcp.json` (or `.cursor/mcp.json` in the project):
 {
   "mcpServers": {
     "contextkit": {
-      "url": "https://<name>.fastmcp.app/mcp",
+      "url": "https://contextkit.onrender.com/mcp",
       "headers": { "Authorization": "Bearer ck_..." }
     }
   }
@@ -128,11 +128,34 @@ Add to `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.contextkit]
-url = "https://<name>.fastmcp.app/mcp"
+url = "https://contextkit.onrender.com/mcp"
 http_headers = { "Authorization" = "Bearer ck_..." }
 ```
 
 Over HTTP, `export_markdown` returns the markdown instead of writing a file.
+
+The hosted server runs on a free instance that sleeps when idle, so the first request after a quiet period can take 20–60 seconds. If your agent times out on the first connection, reconnect once.
+
+### Deploying your own hosted server
+
+The hosted server is a plain Python web service backed by Postgres ([ADR 027](docs/ADR/027-hosting-on-render.md)). On [Render](https://render.com), create a **Web Service** from this repository:
+
+| Setting | Value |
+|---|---|
+| Runtime | Python 3 |
+| Build command | `pip install -r requirements.txt` |
+| Start command | `fastmcp run server.py:mcp --transport http --host 0.0.0.0 --port $PORT` |
+| Instance type | Free |
+| Environment | `DATABASE_URL` (Supabase session pooler, `?sslmode=require`), `CONTEXTKIT_HOSTED=true`, `PYTHON_VERSION=3.12.14` |
+
+Render sets `PORT` itself. Before the first deploy, and after any schema change, run the migrations from your machine with the same `DATABASE_URL`:
+
+```bash
+alembic upgrade head
+cd api && python manage.py migrate
+```
+
+The server refuses to start if the database is behind. Create API keys with `python manage.py create_client --project-id <git remote> --name <name>` (also with `DATABASE_URL` set).
 
 ## Installation (local)
 
