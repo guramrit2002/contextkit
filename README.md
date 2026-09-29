@@ -174,7 +174,7 @@ The container listens on port 8000 and publishes it only on `127.0.0.1:8002`. Pu
 
 ### User API: get your own API key
 
-With a user account on the backend, you can issue keys yourself ([ADR 028](docs/ADR/028-user-api-keys.md)):
+The website's **Get your API key** button signs you in with GitHub and issues a key. Scripts and admin-created accounts can use the API directly ([ADR 028](docs/ADR/028-user-api-keys.md)):
 
 ```bash
 # Log in: returns a JWT access token (15 min) and refresh token

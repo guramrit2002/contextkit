@@ -14,7 +14,8 @@ Two endpoint groups under `/api/v1/`, served by Django:
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /api/v1/auth/token/` | Username + password → JWT access (15 min) + refresh (1 day) |
+| `POST /api/v1/auth/github/` | GitHub OAuth code → JWT access + refresh (how the website signs in) |
+| `POST /api/v1/auth/token/` | Username + password → JWT access (15 min) + refresh (1 day), for admin-created accounts and scripts |
 | `POST /api/v1/auth/token/refresh/` | Refresh → new access token |
 | `GET /api/v1/clients/` | The caller's clients (never the key or its hash) |
 | `POST /api/v1/clients/` | Create a client for a project; returns the key **once** |
@@ -23,6 +24,7 @@ Two endpoint groups under `/api/v1/`, served by Django:
 | `DELETE /api/v1/clients/{id}/` | Revoke: deletes the client and its key |
 
 - **Auth:** JWT (`djangorestframework-simplejwt`) in the `Authorization: Bearer` header. Session cookies and API keys are not accepted on these endpoints, so there is no CSRF surface and an API key can never manage keys.
+- **GitHub sign-in:** the website sends the user to GitHub's OAuth authorize page with a random `state`; GitHub redirects back to the website with a one-time `code`, which the website posts to `/api/v1/auth/github/`. Django exchanges it with the client secret (which never leaves the server), reads the GitHub user, and links or creates a Django user by GitHub's **numeric id** (logins can be renamed). Our JWT is returned in the response body, never in a URL. No OAuth scopes are requested, only the public profile. GitHub-created users have no usable password. An optional `GITHUB_ALLOWED_LOGINS` allowlist restricts who can sign in; empty means any GitHub user.
 - **Ownership:** a client's `user_id` is the Django user's id. Users see and change only their own clients; anyone else's returns 404, as if it did not exist.
 - **Keys:** plaintext only in create and rotate responses (`Cache-Control: no-store`); only the SHA-256 hash is stored (ADR 022).
 - **Brute force:** login and refresh are throttled per client IP (`DJANGO_AUTH_THROTTLE_RATE`, default `10/min`).
@@ -38,6 +40,6 @@ Two endpoint groups under `/api/v1/`, served by Django:
 
 ## Deferred
 
-- Sign-up and password reset (users are created by an admin for now).
+- Password reset for admin-created accounts (GitHub users need none).
 - Refresh-token blacklisting and logout.
 - A shared cache for throttling across workers.
