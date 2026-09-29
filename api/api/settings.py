@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 
 import os
 import sys
+from datetime import timedelta
 from pathlib import Path
 
 from core.config import resolve_django_db_path
@@ -55,12 +56,15 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'corsheaders',
     'clients',
     'context',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Before anything that can return a response, so browser preflights get CORS headers.
+    'corsheaders.middleware.CorsMiddleware',
     # Serves collected static files (the admin's CSS/JS) when DEBUG is off.
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -163,6 +167,29 @@ STORAGES = {
     'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
     'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage'},
 }
+
+# User API (ADR 028). Views set their own authentication; these are the JWT and
+# throttling settings they use.
+REST_FRAMEWORK = {
+    'DEFAULT_THROTTLE_RATES': {
+        # Login and refresh, per client IP.
+        'auth': os.getenv('DJANGO_AUTH_THROTTLE_RATE', '10/min'),
+    },
+}
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'UPDATE_LAST_LOGIN': True,
+}
+
+# The website calls the user API from another origin. JWTs travel in the Authorization
+# header, never cookies, so credentials stay off; only /api/v1/ is cross-origin.
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv('DJANGO_CORS_ALLOWED_ORIGINS', '').split(',')
+    if origin.strip()
+]
+CORS_URLS_REGEX = r'^/api/v1/.*$'
 
 # Deployment behind a reverse proxy; set these from the deployment environment.
 CSRF_TRUSTED_ORIGINS = [
