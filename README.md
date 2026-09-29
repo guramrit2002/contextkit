@@ -172,6 +172,23 @@ docker compose run --rm api python manage.py create_client --project-id <git rem
 
 The container listens on port 8000 and publishes it only on `127.0.0.1:8002`. Put a reverse proxy in front for HTTPS, and set `DJANGO_ALLOWED_HOSTS`, `DJANGO_CSRF_TRUSTED_ORIGINS` and `DJANGO_BEHIND_PROXY=true` for your domain.
 
+### User API: get your own API key
+
+With a user account on the backend, you can issue keys yourself ([ADR 028](docs/ADR/028-user-api-keys.md)):
+
+```bash
+# Log in: returns a JWT access token (15 min) and refresh token
+curl -X POST https://<backend>/api/v1/auth/token/ -H "Content-Type: application/json" \
+  -d '{"username": "you", "password": "..."}'
+
+# Create a key for a project (shown once)
+curl -X POST https://<backend>/api/v1/clients/ -H "Authorization: Bearer <access>" \
+  -H "Content-Type: application/json" \
+  -d '{"project_id": "https://github.com/you/repo.git", "name": "laptop"}'
+```
+
+`GET /api/v1/clients/` lists your keys, `POST /api/v1/clients/<id>/rotate/` replaces one, and `DELETE /api/v1/clients/<id>/` revokes it.
+
 ## Installation (local)
 
 Run contextkit on your own machine with local SQLite storage.
