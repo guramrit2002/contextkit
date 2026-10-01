@@ -3,7 +3,7 @@ import logging
 from typing import Any, NamedTuple, Optional
 
 from core.auth import current_client, validate_client_project_access
-from core.redaction import SecretRedactor
+from core.redaction import SecretRedactor, validate_project_id
 from core.validation import (
     validate_export_markdown_input,
     validate_get_context_input,
@@ -27,6 +27,9 @@ def _resolve_identity(
     """Fill client/user/project from the authenticated client, if any, and enforce its project."""
     from core import storage
 
+    if project_id:
+        # Every tool's project ID is validated and normalized here, so all callers agree.
+        project_id = validate_project_id(project_id)
     client = current_client()
     if client is not None:
         project_id = validate_client_project_access(client, project_id)

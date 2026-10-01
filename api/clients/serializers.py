@@ -7,7 +7,7 @@ from clients.models import Client
 class CreateClientRequest(serializers.Serializer):
     project_id = serializers.CharField(
         max_length=500,
-        help_text="Git remote URL or folder path, exactly as contextkit identifies the project.",
+        help_text="Repository URL (any form: https, SSH, with or without .git)",
     )
     name = serializers.CharField(max_length=255)
 

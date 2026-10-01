@@ -1,9 +1,10 @@
 """Django admin configuration for clients app."""
+from django import forms
 from django.contrib import admin
 from django.template.response import TemplateResponse
 
 from .models import ApiKey, Client
-from .services import issue_api_key
+from .services import canonical_project_id, issue_api_key
 
 ISSUED_KEYS_TEMPLATE = "admin/clients/issued_keys.html"
 
@@ -20,8 +21,19 @@ def show_issued_keys(model_admin, request, issued, title):
     return TemplateResponse(request, ISSUED_KEYS_TEMPLATE, context)
 
 
+class ClientAdminForm(forms.ModelForm):
+    class Meta:
+        model = Client
+        fields = "__all__"
+
+    def clean_project_id(self):
+        # Canonical before the unique (user, project) check, as for API-created clients.
+        return canonical_project_id(self.cleaned_data["project_id"])
+
+
 @admin.register(Client)
 class ClientAdmin(admin.ModelAdmin):
+    form = ClientAdminForm
     list_display = ("name", "user_id", "project_id", "has_key", "created_at", "updated_at")
     list_filter = ("created_at", "updated_at", "user_id")
     search_fields = ("name", "project_id", "user_id")

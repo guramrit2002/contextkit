@@ -143,6 +143,33 @@ def test_other_project_is_denied():
         auth.validate_client_project_access(CLIENT, "proj-2")
 
 
+CANONICAL_CLIENT = auth.ClientContext("client-1", "alice", "https://github.com/o/r")
+
+
+@pytest.mark.parametrize(
+    "requested", ["git@github.com:o/r.git", "https://github.com/O/R/", "github.com/o/r"]
+)
+def test_any_form_of_the_assigned_repository_is_allowed(requested):
+    assert (
+        auth.validate_client_project_access(CANONICAL_CLIENT, requested) == "https://github.com/o/r"
+    )
+
+
+def test_another_repository_is_denied_in_any_form():
+    with pytest.raises(AuthorizationError):
+        auth.validate_client_project_access(CANONICAL_CLIENT, "https://github.com/o/other")
+    with pytest.raises(AuthorizationError):
+        auth.validate_client_project_access(CANONICAL_CLIENT, "git@github.com:o/other.git")
+
+
+def test_client_stored_before_migration_still_matches_canonical_request():
+    legacy = auth.ClientContext("client-1", "alice", "https://github.com/o/r.git")
+
+    allowed = auth.validate_client_project_access(legacy, "https://github.com/o/r")
+
+    assert allowed == legacy.project_id
+
+
 def test_authorization_error_is_a_permission_error():
     assert issubclass(AuthorizationError, PermissionError)
 
@@ -211,6 +238,31 @@ async def test_project_mismatch_is_denied_and_audited(make_client):
     assert (row["client_id"], row["user_id"], row["project_id"]) == (
         client.client_id, "alice", "proj-2",
     )
+
+
+@pytest.mark.asyncio
+async def test_denied_call_audits_the_normalized_project_id(make_client):
+    _, key = make_client()
+    _, operation = recorder()
+
+    with pytest.raises(AuthorizationError):
+        await auth.guarded_call("get_context", key, "git@github.com:O/Other.git", operation)
+
+    [row] = audit_rows(storage.get_db_path())
+    assert (row["status"], row["project_id"]) == ("denied", "https://github.com/o/other")
+
+
+@pytest.mark.asyncio
+async def test_denied_call_audits_an_unnormalizable_project_id_as_given(make_client):
+    _, key = make_client()
+    _, operation = recorder()
+    too_long = "github.com/" + "a" * 495
+
+    with pytest.raises(AuthorizationError):
+        await auth.guarded_call("get_context", key, too_long, operation)
+
+    [row] = audit_rows(storage.get_db_path())
+    assert row["project_id"] == too_long
 
 
 @pytest.mark.asyncio

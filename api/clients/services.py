@@ -2,11 +2,14 @@
 import hashlib
 import secrets
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from clients.models import ApiKey, Client
+from core.projects import normalize_project_id
 
 KEY_PREFIX = "ck_"
+DUPLICATE_PROJECT_MESSAGE = "You already have a key for this repository. Rotate it instead."
 
 
 def hash_api_key(api_key: str) -> str:
@@ -27,10 +30,22 @@ def issue_api_key(client: Client) -> str:
     return api_key
 
 
+def canonical_project_id(project_id: str) -> str:
+    """The project ID as core stores and compares it (ADR 030), or a Django ValidationError."""
+    try:
+        return normalize_project_id(project_id)
+    except ValueError as exc:
+        raise ValidationError({"project_id": [str(exc)]}) from exc
+
+
 @transaction.atomic
 def create_client(*, user_id: str, project_id: str, name: str) -> tuple[Client, str]:
     """Create a client assigned to one project and issue its API key."""
-    client = Client(user_id=user_id.strip(), project_id=project_id.strip(), name=name.strip())
+    user_id, project_id = user_id.strip(), canonical_project_id(project_id)
+    if Client.objects.filter(user_id=user_id, project_id=project_id).exists():
+        # Any URL form of a repository is the same project, and each has one key (ADR 022).
+        raise ValidationError({"project_id": [DUPLICATE_PROJECT_MESSAGE]})
+    client = Client(user_id=user_id, project_id=project_id, name=name.strip())
     client.full_clean()
     client.save()
     return client, issue_api_key(client)
