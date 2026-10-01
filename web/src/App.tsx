@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react'
 const REPO_URL = 'https://github.com/guramrit2002/contextkit'
 const MCP_URL = 'https://contextkit.onrender.com/mcp'
 const AUTH_HEADER = 'Authorization: Bearer ck_...'
-const GUIDES_URL = `${REPO_URL}/blob/main/docs/guide`
+// HEAD resolves to the default branch on GitHub.
+const GUIDES_URL = `${REPO_URL}/blob/HEAD/docs/guide`
 
 interface AgentSetup {
   agent: string
