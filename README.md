@@ -1,10 +1,16 @@
-# contextkit
+<p align="center">
+  <img src="web/public/favicon.svg" alt="contextkit logo" width="72" height="72">
+</p>
 
-**Shared memory for your AI coding agents.**
+<h1 align="center">contextkit</h1>
+
+<p align="center"><b>Shared memory for your AI coding agents.</b></p>
 
 Switch between Claude Code, Codex, Cursor and other agents without re-explaining your project. contextkit keeps your project's decisions, progress and session history, and hands all of it to whichever agent picks up next.
 
-[Get started](#get-started) · [How it works](#how-it-works) · [Security](#security--privacy)
+<p align="center">
+  <a href="#get-started">Get started</a> · <a href="#how-it-works">How it works</a> · <a href="#security--privacy">Security</a>
+</p>
 
 ---
 
