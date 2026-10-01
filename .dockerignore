@@ -28,3 +28,6 @@ tests/
 docs/
 **/*.md
 lefthook.yml
+
+# The website has its own build (web/); the Django image never needs it.
+web/
