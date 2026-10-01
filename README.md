@@ -4,7 +4,7 @@
 
 Switch between Claude Code, Codex, Cursor and other agents without re-explaining your project. contextkit keeps your project's decisions, progress and session history, and hands all of it to whichever agent picks up next.
 
-[Get started](#get-started) · [How it works](#how-it-works) · [Security](#security--privacy) · [Self-hosting](#self-hosting)
+[Get started](#get-started) · [How it works](#how-it-works) · [Security](#security--privacy)
 
 ---
 
@@ -40,79 +40,20 @@ The server tells agents to do this on its own, so there are no rules to add to y
 
 ### 1. Get an API key
 
-Keys look like `ck_...`. Each one works for exactly one project, identified by its git remote URL. Ask your contextkit admin for one, or create your own through the [user API](#api-keys).
+Keys look like `ck_...`. Each one works for exactly one project, identified by its git remote URL. Ask your contextkit admin for one.
 
 ### 2. Connect your agent
 
-**Claude Code**
+Pick your agent and follow its guide:
 
-```bash
-claude mcp add --transport http contextkit https://contextkit.onrender.com/mcp \
-  --header "Authorization: Bearer ck_..."
-```
-
-<details>
-<summary><b>Gemini CLI</b></summary>
-
-```bash
-gemini mcp add --transport http contextkit https://contextkit.onrender.com/mcp \
-  --header "Authorization: Bearer ck_..."
-```
-</details>
-
-<details>
-<summary><b>VS Code (GitHub Copilot)</b></summary>
-
-```bash
-code --add-mcp '{"name":"contextkit","type":"http","url":"https://contextkit.onrender.com/mcp","headers":{"Authorization":"Bearer ck_..."}}'
-```
-</details>
-
-<details>
-<summary><b>Cursor</b></summary>
-
-Add to `~/.cursor/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "contextkit": {
-      "url": "https://contextkit.onrender.com/mcp",
-      "headers": { "Authorization": "Bearer ck_..." }
-    }
-  }
-}
-```
-</details>
-
-<details>
-<summary><b>Windsurf</b></summary>
-
-Add to `~/.codeium/windsurf/mcp_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "contextkit": {
-      "serverUrl": "https://contextkit.onrender.com/mcp",
-      "headers": { "Authorization": "Bearer ck_..." }
-    }
-  }
-}
-```
-</details>
-
-<details>
-<summary><b>Codex</b></summary>
-
-Add to `~/.codex/config.toml`:
-
-```toml
-[mcp_servers.contextkit]
-url = "https://contextkit.onrender.com/mcp"
-http_headers = { "Authorization" = "Bearer ck_..." }
-```
-</details>
+| Agent | Setup guide |
+|---|---|
+| Claude Code | [docs/guide/claude-code.md](docs/guide/claude-code.md) |
+| Codex | [docs/guide/codex.md](docs/guide/codex.md) |
+| Cursor | [docs/guide/cursor.md](docs/guide/cursor.md) |
+| Gemini CLI | [docs/guide/gemini-cli.md](docs/guide/gemini-cli.md) |
+| VS Code (GitHub Copilot) | [docs/guide/vscode.md](docs/guide/vscode.md) |
+| Windsurf | [docs/guide/windsurf.md](docs/guide/windsurf.md) |
 
 ### 3. Start working
 
@@ -135,74 +76,8 @@ Open your project and give your agent a task. It loads the briefing first and lo
 - **Redacted:** API keys, passwords and credentials are removed before anything is stored.
 - **Audited:** every call, allowed or denied, is recorded.
 - **Encrypted in transit:** HTTPS to the server, TLS to the database.
-- **Open source:** every line is auditable.
 
 Context is stored in the hosted Postgres database, not on your machine.
-
-## Self-hosting
-
-contextkit is two services sharing one Postgres database ([ADR 029](docs/ADR/029-deployed-database-only.md)):
-
-- the **MCP server** that agents connect to, and
-- a **Django backend** for the admin, API keys, and a REST API for tools without MCP.
-
-**Database.** Create a Postgres database (Supabase works well) and use its session-pooler URL as `DATABASE_URL`, ending in `?sslmode=require`. Run the migrations from your machine before the first deploy and after every update:
-
-```bash
-alembic upgrade head
-cd api && python manage.py migrate
-```
-
-**MCP server** ([ADR 027](docs/ADR/027-hosting-on-render.md)). On Render, create a Web Service from this repository:
-
-| Setting | Value |
-|---|---|
-| Build command | `pip install -r requirements.txt` |
-| Start command | `fastmcp run server.py:mcp --transport http --host 0.0.0.0 --port $PORT` |
-| Environment | `DATABASE_URL`, `CONTEXTKIT_HOSTED=true`, `PYTHON_VERSION=3.12.14` |
-
-**Django backend** (Docker):
-
-```bash
-cp .env.example .env              # DATABASE_URL and DJANGO_SECRET_KEY (single-quoted)
-docker compose build
-docker compose run --rm migrate
-docker compose up -d              # http://127.0.0.1:8002/admin/
-docker compose run --rm api python manage.py createsuperuser
-```
-
-Behind your HTTPS proxy, set `DJANGO_ALLOWED_HOSTS`, `DJANGO_CSRF_TRUSTED_ORIGINS` and `DJANGO_BEHIND_PROXY=true`.
-
-### API keys
-
-Admins create keys in the Django admin or with `python manage.py create_client --project-id <git remote> --name <name>`. Users can manage their own keys through the user API ([ADR 028](docs/ADR/028-user-api-keys.md)):
-
-```bash
-# Sign in (username and password, or POST a GitHub OAuth code to /api/v1/auth/github/)
-curl -X POST https://<backend>/api/v1/auth/token/ -H "Content-Type: application/json" \
-  -d '{"username": "you", "password": "..."}'
-
-# Create a key for a project; it is shown only once
-curl -X POST https://<backend>/api/v1/clients/ -H "Authorization: Bearer <access token>" \
-  -H "Content-Type: application/json" \
-  -d '{"project_id": "https://github.com/you/repo.git", "name": "laptop"}'
-```
-
-`GET /api/v1/clients/` lists your keys, `POST /api/v1/clients/<id>/rotate/` replaces one, and `DELETE /api/v1/clients/<id>/` revokes it.
-
-## Development
-
-```bash
-git clone https://github.com/guramrit2002/contextkit.git
-cd contextkit
-uv sync --extra backend --extra dev
-cp .env.example .env        # set DATABASE_URL and DJANGO_SECRET_KEY
-
-uv run pytest                                          # core and MCP server
-cd api && uv run --extra backend python manage.py test # Django
-```
-
-The tests run on throwaway SQLite files and never touch `DATABASE_URL`. Architecture decisions live in [`docs/ADR/`](docs/ADR/).
 
 ## What's next
 
@@ -210,7 +85,3 @@ The tests run on throwaway SQLite files and never touch `DATABASE_URL`. Architec
 - A token budget for briefings on long-running projects.
 - Sign-up and a dashboard for managing projects and keys.
 - Rate limiting per key.
-
-## Support
-
-Found a bug or have an idea? [Open an issue](https://github.com/guramrit2002/contextkit/issues).
