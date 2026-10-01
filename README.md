@@ -22,7 +22,6 @@ contextkit is an MCP server that every agent reads from and writes to. One agent
 
 - **Seamless handoffs:** move between Claude Code, Codex, Cursor, Gemini CLI, Windsurf or VS Code mid-task.
 - **Decisions that stick:** every decision is stored with its reasoning and the alternatives that were rejected.
-- **Nothing to install:** connect a hosted server with one command and an API key.
 - **Secure by default:** every call is authenticated, limited to one project, redacted and audited.
 
 ## How it works
