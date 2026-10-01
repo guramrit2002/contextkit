@@ -16,7 +16,7 @@ When you use multiple AI tools (Claude Code, Codex, Cursor) on the same project,
 
 ✨ **Automatic Context Management** — Agents load full project briefings on startup, including architecture, decisions, progress, and blockers  
 🔄 **Seamless Handoffs** — Switch between Claude Code, Codex, and Cursor with zero context loss  
-🛡️ **Enterprise Security** — Automatic secret redaction, zero-knowledge architecture, all data stays local  
+🛡️ **Secure by Default** — An API key on every call, one project per key, secrets redacted before storage, every call audited  
 📊 **Persistent History** — Every decision and work session is recorded and searchable  
 🔌 **Tool-Agnostic** — Works with any MCP-compatible AI coding agent  
 ⚡ **Zero Setup** — Install once, use everywhere—all agents automatically access the same context
@@ -44,7 +44,7 @@ When you use multiple AI tools (Claude Code, Codex, Cursor) on the same project,
 ### Security First
 
 - **Automatic Redaction** — API keys, credentials, and sensitive data are redacted before storage
-- **Zero Network Access** — All data stays on your machine (Step 1)
+- **API Keys** — Every call is authenticated, limited to its key's project, and audited
 - **Open Source** — Fully auditable, no vendor lock-in
 
 ## Architecture
@@ -55,7 +55,7 @@ flowchart TD
     N[Non-MCP clients<br/>step 3]:::later --> R[REST API<br/>step 3]:::later
     M --> C[Core services<br/>plain Python]
     R --> C
-    C --> D[(Database<br/>SQLite, later Postgres)]
+    C --> D[(Postgres<br/>Supabase)]
     D -.reads.-> J[Django<br/>onboarding, dashboards, step 2]:::later
     U[Users in browser]:::later --> J
     classDef later stroke-dasharray: 5 5
@@ -63,7 +63,7 @@ flowchart TD
 
 - **MCP server:** a thin transport layer. It defines tools and calls core; it contains no business logic.
 - **Core services:** a plain Python package with no Django dependency. It handles briefing assembly, compaction, redaction, and storage.
-- **Database:** SQLite locally; Postgres once hosted.
+- **Database:** one Postgres database (Supabase), shared by core and Django ([ADR 029](docs/ADR/029-deployed-database-only.md)).
 - **Django (step 2):** onboarding, API keys, and analytics. It reads context tables but never writes them.
 
 Only core writes to the context tables. See [`docs/adr/`](docs/adr/) for the full list of architecture decisions.
@@ -189,65 +189,22 @@ curl -X POST https://<backend>/api/v1/clients/ -H "Authorization: Bearer <access
 
 `GET /api/v1/clients/` lists your keys, `POST /api/v1/clients/<id>/rotate/` replaces one, and `DELETE /api/v1/clients/<id>/` revokes it.
 
-## Installation (local)
+## Development
 
-Run contextkit on your own machine with local SQLite storage.
-
-### Requirements
-
-- Python 3.12+
-- [uv](https://docs.astral.sh/uv/) (fast Python package manager)
-- Git (for project detection)
-
-### Quick Start
-
-Clone and install contextkit:
+contextkit runs only against the deployed Postgres database; there is no local-database mode ([ADR 029](docs/ADR/029-deployed-database-only.md)).
 
 ```bash
 git clone https://github.com/guramrit2002/contextkit.git
 cd contextkit
-uv sync
+uv sync --extra backend --extra dev
+cp .env.example .env        # set DATABASE_URL (Supabase session pooler) and DJANGO_SECRET_KEY
 ```
 
-### Setup
-
-#### For Claude Code
+Without `DATABASE_URL` the MCP server and Django refuse to start with a clear error. The test suites never touch it: they run on throwaway SQLite files.
 
 ```bash
-claude mcp add contextkit -- uv --directory /path/to/contextkit run python -m mcp_server
-```
-
-#### For Codex
-
-Add to `~/.codex/config.toml`:
-
-```toml
-[mcp_servers.contextkit]
-command = "uv"
-args = ["--directory", "/path/to/contextkit", "run", "python", "-m", "mcp_server"]
-```
-
-#### For Cursor
-
-Add to your Cursor settings:
-
-```json
-{
-  "mcp_servers": {
-    "contextkit": {
-      "command": "uv",
-      "args": ["--directory", "/path/to/contextkit", "run", "python", "-m", "mcp_server"]
-    }
-  }
-}
-```
-
-### Verification
-
-Test the server interactively using the MCP Inspector:
-
-```bash
-npx @modelcontextprotocol/inspector uv run python -m mcp_server
+uv run pytest                                          # core and MCP server
+cd api && uv run --extra backend python manage.py test # Django
 ```
 
 ## Usage
@@ -270,27 +227,24 @@ This enables seamless handoffs between Claude Code, Codex, Cursor, and other age
 
 ### For Humans
 
-View your project's context anytime:
-
-```bash
-# Export context as markdown
-contextkit export --project /path/to/repo --output context.md
-```
-
-All data is stored in `~/.contextkit/` and stays on your machine.
+Ask your agent to call `export_markdown` to get the project's full context as markdown.
 
 ## Privacy & Security
 
 Your project context is sensitive. contextkit treats it that way:
 
-- ✅ **Zero Cloud** — All data stays on your machine. No servers, no telemetry, no tracking
-- ✅ **Automatic Redaction** — API keys, passwords, credentials redacted before storage
-- ✅ **Open Source** — Fully auditable code. No hidden behavior
-- ✅ **Git-Based** — Your context lives alongside your code, in version control
+- ✅ **Authenticated** — Every call needs an API key; only its SHA-256 hash is stored
+- ✅ **Isolated** — Each key can read and write exactly one project
+- ✅ **Automatic Redaction** — API keys, passwords and credentials are redacted before storage
+- ✅ **Audited** — Every call, allowed or denied, is recorded
+- ✅ **Encrypted in transit** — HTTPS to the server, TLS to the database
+- ✅ **Open Source** — Fully auditable code
+
+Context is stored in the hosted Postgres database, not on your machine.
 
 ## Roadmap
 
-**Current (v1.0)** — Single-agent local server, SQLite storage, 5 core tools
+**Current (v1.0)** — Hosted MCP server, Postgres storage, 5 core tools, per-project API keys
 
 **v1.1** — Multi-agent support, session compaction, token budget management  
 **v2.0** — Django backend, browser dashboard, PostgreSQL support  
