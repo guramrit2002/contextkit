@@ -7,7 +7,7 @@ from unittest import mock
 from django.contrib.admin import site
 from django.contrib.auth.models import Permission, User
 from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import connection
@@ -145,7 +145,15 @@ class DatabasePathTests(SimpleTestCase):
         self.assertEqual(db["CONN_MAX_AGE"], 60)
         self.assertEqual(db["OPTIONS"]["sslmode"], "require")
 
-    def test_no_database_url_keeps_the_local_sqlite_file(self):
+    def test_no_database_url_is_refused_outside_tests(self):
+        with mock.patch.dict("os.environ", {"CONTEXTKIT_ALLOW_SQLITE": "false"}):
+            with self.assertRaisesMessage(ImproperlyConfigured, "DATABASE_URL is not set"):
+                project_settings.database_settings("")
+
+    def test_test_runs_opt_in_to_sqlite(self):
+        self.assertEqual(os.environ.get("CONTEXTKIT_ALLOW_SQLITE"), "true")
+
+    def test_sqlite_settings_when_allowed(self):
         db = project_settings.database_settings("")
 
         self.assertEqual(db["ENGINE"], "django.db.backends.sqlite3")

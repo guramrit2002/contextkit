@@ -48,14 +48,36 @@ def _database_url_env() -> Optional[str]:
     return url
 
 
+MISSING_DATABASE_URL = (
+    "DATABASE_URL is not set. contextkit runs only against the deployed Postgres database "
+    "(ADR 029): set DATABASE_URL to the Supabase session-pooler URL (see .env.example)."
+)
+
+
+def sqlite_allowed() -> bool:
+    """SQLite is for the test suites only, which opt in with CONTEXTKIT_ALLOW_SQLITE=true."""
+    return os.getenv("CONTEXTKIT_ALLOW_SQLITE", "False").lower() == "true"
+
+
+def _require(sqlite_url: str) -> str:
+    url = _database_url_env()
+    if url:
+        return url
+    if sqlite_allowed():
+        return sqlite_url
+    from core.errors import ConfigurationError
+
+    raise ConfigurationError(MISSING_DATABASE_URL)
+
+
 def resolve_database_url() -> str:
-    """Core's database URL: DATABASE_URL when hosted, else the local SQLite file."""
-    return _database_url_env() or f"sqlite:///{resolve_db_path()}"
+    """Core's database URL: DATABASE_URL. Tests may use a SQLite file instead."""
+    return _require(f"sqlite:///{resolve_db_path()}")
 
 
 def resolve_django_database_url() -> str:
-    """Django's database URL: the same DATABASE_URL (one database), else its SQLite file."""
-    return _database_url_env() or f"sqlite:///{resolve_django_db_path()}"
+    """Django's database URL: the same DATABASE_URL. Tests may use a SQLite file instead."""
+    return _require(f"sqlite:///{resolve_django_db_path()}")
 
 
 def is_sqlite(url: str) -> bool:
