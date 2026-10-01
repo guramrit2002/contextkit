@@ -24,8 +24,10 @@ COPY core ./core
 COPY alembic.ini ./
 COPY api ./api
 
-# The key only lets settings import during the build; collectstatic never uses it.
-RUN cd api && DJANGO_SECRET_KEY=collectstatic-only python manage.py collectstatic --noinput
+# The key and the SQLite opt-in only let settings import during the build; collectstatic
+# never opens a database or uses the key.
+RUN cd api && DJANGO_SECRET_KEY=collectstatic-only CONTEXTKIT_ALLOW_SQLITE=true \
+    python manage.py collectstatic --noinput
 
 USER contextkit
 WORKDIR /app/api

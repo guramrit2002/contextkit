@@ -308,3 +308,18 @@ class CoreSchemaCheckTests(SimpleTestCase):
 
     def test_check_is_registered(self):
         self.assertIn(core_database_schema, checks.registry.registry.get_checks())
+
+
+class CoreDatabaseUnreachableTests(SimpleTestCase):
+    def test_unreachable_database_is_one_clean_error_without_the_url(self):
+        from sqlalchemy.exc import OperationalError
+
+        failure = OperationalError(
+            "SELECT 1", {}, Exception("connection to postgres://u:secret@db.invalid failed")
+        )
+        with mock.patch("context.checks.core_schema_status", side_effect=failure):
+            [issue] = core_database_schema(None)
+
+        self.assertEqual((issue.level, issue.id), (checks.ERROR, "context.E002"))
+        self.assertNotIn("secret", issue.msg + issue.hint)
+        self.assertNotIn("db.invalid", issue.msg + issue.hint)

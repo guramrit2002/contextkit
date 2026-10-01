@@ -1,3 +1,4 @@
+import os
 from datetime import UTC, datetime
 
 import pytest
@@ -5,8 +6,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
-from core.auth import ClientContext, hash_api_key
-from core.models import ApiKey, Client, DjangoOwnedBase
+# Tests run on throwaway SQLite files; the deployed database is never used (ADR 029).
+# Set at import time, before test modules import the MCP server (which checks it).
+os.environ["CONTEXTKIT_ALLOW_SQLITE"] = "true"
+
+from core.auth import ClientContext, hash_api_key  # noqa: E402
+from core.models import ApiKey, Client, DjangoOwnedBase  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

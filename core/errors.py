@@ -43,3 +43,7 @@ class AuthenticationError(ContextKitError):
 
 class AuthorizationError(ContextKitError, PermissionError):
     """Raised when an authenticated client requests a project it is not assigned to."""
+
+
+class ConfigurationError(ContextKitError):
+    """Raised when required configuration (such as DATABASE_URL) is missing."""

@@ -15,7 +15,9 @@ import sys
 from datetime import timedelta
 from pathlib import Path
 
-from core.config import resolve_django_db_path
+from django.core.exceptions import ImproperlyConfigured
+
+from core.config import MISSING_DATABASE_URL, resolve_django_db_path, sqlite_allowed
 
 # Load environment variables from .env file
 try:
@@ -107,14 +109,20 @@ if sys.argv[1:2] == ['test']:
     # environment so core, running in this same process, follows too.
     os.environ.pop('DATABASE_URL', None)
     os.environ.pop('CONTEXTKIT_HOSTED', None)
+    os.environ['CONTEXTKIT_ALLOW_SQLITE'] = 'true'
 
 
 def database_settings(url):
-    """One hosted Postgres database for core and Django (ADR 026), else the local SQLite file."""
+    """The deployed Postgres database shared with core (ADR 026, ADR 029).
+
+    SQLite is only for test runs, which opt in with CONTEXTKIT_ALLOW_SQLITE=true.
+    """
     if url:
         import dj_database_url
 
         return dj_database_url.parse(url, conn_max_age=60, ssl_require=True)
+    if not sqlite_allowed():
+        raise ImproperlyConfigured(MISSING_DATABASE_URL)
     return {
         'ENGINE': 'django.db.backends.sqlite3',
         # Django's own file (clients, api_keys, auth), separate from core's database. Core's

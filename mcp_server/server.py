@@ -3,7 +3,7 @@ import logging
 
 from fastmcp import FastMCP
 
-from core.config import config
+from core.config import config, resolve_database_url
 from core.db_init import UPGRADE_COMMAND, core_schema_status
 
 logger = logging.getLogger(__name__)
@@ -54,5 +54,7 @@ def check_hosted_schema():
         )
 
 
+# Fail at startup, not on the first tool call, when DATABASE_URL is missing.
+resolve_database_url()
 setup_tools()
 check_hosted_schema()
