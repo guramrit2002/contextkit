@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import ApiKeyModal from './ApiKeyModal'
 
 const REPO_URL = 'https://github.com/guramrit2002/contextkit'
 const CONNECT_COMMAND =
@@ -79,8 +78,6 @@ function HandoffDiagram() {
 }
 
 export default function App() {
-  const [keyOpen, setKeyOpen] = useState(false)
-
   return (
     <main className="hero">
       <header className="bar">
@@ -88,9 +85,6 @@ export default function App() {
           <img src="/favicon.svg" alt="" width="28" height="28" />
           contextkit
         </a>
-        <button type="button" className="button primary small" onClick={() => setKeyOpen(true)}>
-          API key
-        </button>
       </header>
 
       <section className="content">
@@ -127,8 +121,6 @@ export default function App() {
 
         <HandoffDiagram />
       </section>
-
-      <ApiKeyModal open={keyOpen} onClose={() => setKeyOpen(false)} />
     </main>
   )
 }
