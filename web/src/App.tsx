@@ -3,9 +3,12 @@ import { useEffect, useState } from 'react'
 const REPO_URL = 'https://github.com/guramrit2002/contextkit'
 const MCP_URL = 'https://contextkit.onrender.com/mcp'
 const AUTH_HEADER = 'Authorization: Bearer ck_...'
+const GUIDES_URL = `${REPO_URL}/blob/main/docs/guide`
 
 interface AgentSetup {
   agent: string
+  /** File name of the agent's guide in docs/guide/, without `.md`. */
+  guide: string
   /** A terminal command, or a snippet to add to a config file. */
   kind: 'command' | 'config'
   /** Where a config snippet goes. */
@@ -16,21 +19,25 @@ interface AgentSetup {
 const SETUPS: AgentSetup[] = [
   {
     agent: 'Claude Code',
+    guide: 'claude-code',
     kind: 'command',
     text: `claude mcp add --transport http contextkit ${MCP_URL} --header "${AUTH_HEADER}"`,
   },
   {
     agent: 'Gemini CLI',
+    guide: 'gemini-cli',
     kind: 'command',
     text: `gemini mcp add --transport http contextkit ${MCP_URL} --header "${AUTH_HEADER}"`,
   },
   {
     agent: 'VS Code (Copilot)',
+    guide: 'vscode',
     kind: 'command',
     text: `code --add-mcp '{"name":"contextkit","type":"http","url":"${MCP_URL}","headers":{"Authorization":"Bearer ck_..."}}'`,
   },
   {
     agent: 'Cursor',
+    guide: 'cursor',
     kind: 'config',
     file: '~/.cursor/mcp.json',
     text: `{
@@ -44,6 +51,7 @@ const SETUPS: AgentSetup[] = [
   },
   {
     agent: 'Windsurf',
+    guide: 'windsurf',
     kind: 'config',
     file: '~/.codeium/windsurf/mcp_config.json',
     text: `{
@@ -57,6 +65,7 @@ const SETUPS: AgentSetup[] = [
   },
   {
     agent: 'Codex',
+    guide: 'codex',
     kind: 'config',
     file: '~/.codex/config.toml',
     text: `[mcp_servers.contextkit]
@@ -72,8 +81,12 @@ const FEATURES = [
   'Every call audited',
 ]
 
-function ConnectCommand() {
-  const [selected, setSelected] = useState(0)
+interface ConnectCommandProps {
+  selected: number
+  onSelect: (index: number) => void
+}
+
+function ConnectCommand({ selected, onSelect }: ConnectCommandProps) {
   const [copied, setCopied] = useState(false)
   const setup = SETUPS[selected]
 
@@ -97,7 +110,7 @@ function ConnectCommand() {
           id="setup-agent"
           value={selected}
           onChange={(event) => {
-            setSelected(Number(event.target.value))
+            onSelect(Number(event.target.value))
             setCopied(false)
           }}
         >
@@ -217,6 +230,8 @@ function HandoffDiagram({ step }: { step: number }) {
 
 export default function App() {
   const step = useAgentStep()
+  const [selected, setSelected] = useState(0)
+  const setup = SETUPS[selected]
 
   return (
     <main className="hero">
@@ -246,11 +261,11 @@ export default function App() {
             handoff doc to write.
           </p>
 
-          <ConnectCommand />
+          <ConnectCommand selected={selected} onSelect={setSelected} />
 
           <div className="actions">
-            <a className="button primary" href={`${REPO_URL}#hosted-no-install`}>
-              Setup guide
+            <a className="button primary" href={`${GUIDES_URL}/${setup.guide}.md`}>
+              {setup.agent} setup guide
             </a>
           </div>
 
