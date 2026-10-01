@@ -34,6 +34,8 @@ dev = [
 backend = [
     "django>=4.2",
     "djangorestframework>=3.14",
+    "djangorestframework-simplejwt>=5.3",
+    "django-cors-headers>=4.3",
     "dj-database-url>=2.1",
     "gunicorn>=23",
     "python-dotenv>=1.0",
@@ -70,4 +72,4 @@ target-version = "py312"
 select = ["E", "F", "W", "I"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["core", "mcp_server", "api", "clients", "context"]
+known-first-party = ["core", "mcp_server", "api", "accounts", "clients", "context"]

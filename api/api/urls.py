@@ -21,4 +21,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     # Agent REST API (API key auth), the non-MCP equivalent of the MCP tools. ADR 024.
     path('api/agent/v1/context/', include('context.urls')),
+    # User API (JWT auth): log in, and manage your own API keys. ADR 028.
+    path('api/v1/', include('accounts.urls')),
+    path('api/v1/', include('clients.urls')),
 ]

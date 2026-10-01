@@ -15,7 +15,9 @@ anyio==4.15.1
     #   starlette
     #   watchfiles
 asgiref==3.12.1
-    # via django
+    # via
+    #   django
+    #   django-cors-headers
 attrs==26.1.0
     # via
     #   cyclopts
@@ -48,8 +50,16 @@ django==6.1.1
     # via
     #   contextkit
     #   dj-database-url
+    #   django-cors-headers
     #   djangorestframework
+    #   djangorestframework-simplejwt
+django-cors-headers==4.9.0
+    # via contextkit
 djangorestframework==3.18.1
+    # via
+    #   contextkit
+    #   djangorestframework-simplejwt
+djangorestframework-simplejwt==5.5.1
     # via contextkit
 dnspython==2.8.0
     # via email-validator
@@ -165,7 +175,9 @@ pygments==2.21.0
     #   rich
     #   rich-rst
 pyjwt==2.14.0
-    # via mcp
+    # via
+    #   djangorestframework-simplejwt
+    #   mcp
 pyperclip==1.11.0
     # via fastmcp-slim
 python-dotenv==1.2.3

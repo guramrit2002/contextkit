@@ -19,7 +19,11 @@ REGENERATE = {
 # Extras of dependencies that pull in a separately named package.
 EXTRA_PACKAGES = {("psycopg", "binary"): "psycopg-binary"}
 DEV_TOOLS = {"pytest", "pytest-cov", "pytest-asyncio", "ruff", "mypy"}
-BACKEND_ONLY = {"django", "djangorestframework", "dj-database-url", "gunicorn", "whitenoise"}
+BACKEND_ONLY = {
+    "django", "djangorestframework", "djangorestframework-simplejwt", "django-cors-headers",
+    "dj-database-url",
+    "gunicorn", "whitenoise",
+}
 
 
 def pyproject() -> dict:

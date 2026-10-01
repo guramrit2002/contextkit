@@ -34,3 +34,35 @@ def create_client(*, user_id: str, project_id: str, name: str) -> tuple[Client, 
     client.full_clean()
     client.save()
     return client, issue_api_key(client)
+
+
+def owner_id(user) -> str:
+    """The user_id stored on a client: the Django user's primary key, as a string."""
+    return str(user.pk)
+
+
+def list_clients(user) -> list[Client]:
+    return list(
+        Client.objects.filter(user_id=owner_id(user))
+        .select_related("api_key")
+        .order_by("-created_at")
+    )
+
+
+def get_client(user, client_id: str) -> Client:
+    """The user's own client. Raises Client.DoesNotExist for anyone else's, so it looks absent."""
+    return Client.objects.select_related("api_key").get(id=client_id, user_id=owner_id(user))
+
+
+def create_client_for_user(user, *, project_id: str, name: str) -> tuple[Client, str]:
+    return create_client(user_id=owner_id(user), project_id=project_id, name=name)
+
+
+def rotate_client_key(user, client_id: str) -> tuple[Client, str]:
+    client = get_client(user, client_id)
+    return client, issue_api_key(client)
+
+
+def revoke_client(user, client_id: str) -> None:
+    """Delete the client and, by cascade, its key. The key stops working immediately."""
+    get_client(user, client_id).delete()
