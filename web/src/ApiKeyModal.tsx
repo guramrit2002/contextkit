@@ -12,6 +12,7 @@ import {
   type IssuedKey,
 } from './api'
 import { beginGitHubSignIn, redirectUri, type OAuthReturn } from './oauth'
+import RepoPicker from './RepoPicker'
 import { setupWithKey, type AgentSetup } from './setups'
 
 type Step = 'signin' | 'signing-in' | 'keys' | 'create' | 'issued'
@@ -90,6 +91,7 @@ export default function ApiKeyModal({ open, onClose, setup, agentIndex, oauthRet
   const [repos, setRepos] = useState<GitHubRepo[] | null>(null)
   const [reposError, setReposError] = useState<string | null>(null)
   const [typeUrl, setTypeUrl] = useState(false)
+  const [pickedRepo, setPickedRepo] = useState('')
   const reposRequested = useRef(false)
 
   useEffect(() => {
@@ -157,6 +159,7 @@ export default function ApiKeyModal({ open, onClose, setup, agentIndex, oauthRet
     setRepos(null)
     setReposError(null)
     setTypeUrl(false)
+    setPickedRepo('')
     reposRequested.current = false
   }
 
@@ -188,8 +191,14 @@ export default function ApiKeyModal({ open, onClose, setup, agentIndex, oauthRet
     event.preventDefault()
     if (!token) return
     const form = new FormData(event.currentTarget)
+    const repository = String(form.get('repository') ?? '').trim()
+    if (!repository) {
+      setError('Choose a repository, or use a different URL.')
+      return
+    }
     void run(async () => {
-      setIssued(await createKey(token, String(form.get('repository')), String(form.get('name'))))
+      setIssued(await createKey(token, repository, String(form.get('name'))))
+      setPickedRepo('')
       setStep('issued')
     })
   }
@@ -326,24 +335,22 @@ export default function ApiKeyModal({ open, onClose, setup, agentIndex, oauthRet
         <form className="form" onSubmit={submitCreate}>
           <p className="form-intro">A key works for one repository.</p>
           {showPicker ? (
-            <label>
-              Repository
-              <select name="repository" required defaultValue="" disabled={repos === null} autoFocus>
-                <option value="" disabled>
-                  {repos === null ? 'Loading your repositories…' : 'Choose a repository'}
-                </option>
-                {repos?.map((repo) => {
-                  const hasKey = keyedProjects.has(repo.project_id)
-                  return (
-                    <option key={repo.project_id} value={repo.project_id} disabled={hasKey}>
-                      {repo.full_name}
-                      {repo.fork ? ' (fork)' : ''}
-                      {hasKey ? ' — has a key' : ''}
-                    </option>
-                  )
-                })}
-              </select>
-            </label>
+            <div className="field">
+              <span className="field-label" id="repository-label">
+                Repository
+              </span>
+              <RepoPicker
+                repos={repos}
+                keyed={keyedProjects}
+                value={pickedRepo}
+                onChange={(projectId) => {
+                  setPickedRepo(projectId)
+                  setError(null)
+                }}
+                labelId="repository-label"
+              />
+              <input type="hidden" name="repository" value={pickedRepo} />
+            </div>
           ) : (
             <label>
               Repository URL
