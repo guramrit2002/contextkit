@@ -14,6 +14,14 @@ export interface IssuedKey extends ClientKey {
   api_key: string
 }
 
+export interface GitHubRepo {
+  full_name: string
+  /** The canonical project ID a key for this repository is stored under. */
+  project_id: string
+  pushed_at: string | null
+  fork: boolean
+}
+
 export class ApiError extends Error {
   readonly status: number | null
 
@@ -101,6 +109,14 @@ export async function signInWithGitHub(code: string, redirectUri: string): Promi
 
 export function listKeys(token: string): Promise<ClientKey[]> {
   return request<ClientKey[]>('GET', '/api/v1/clients/', { token })
+}
+
+/** The user's public GitHub repositories, most recently pushed first (no extra scope). */
+export async function listGitHubRepos(token: string): Promise<GitHubRepo[]> {
+  const body = await request<{ repositories: GitHubRepo[] }>('GET', '/api/v1/github/repos/', {
+    token,
+  })
+  return body.repositories
 }
 
 export function createKey(token: string, projectUrl: string, name: string): Promise<IssuedKey> {

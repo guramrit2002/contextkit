@@ -27,13 +27,29 @@ Two things stand in the way:
    - reopens the same dialog.
 4. The site posts the code to `/api/v1/auth/github/` and gets a JWT.
 5. The dialog shows:
-   - for a new user: a **Repository URL** field and a key name;
+   - for a new user: a **Repository** picker and a key name (see "Repository picker" below);
    - for a returning user: their keys by name and project (never the key itself), with **Rotate**, **Revoke** and **New key**.
 6. Creating or rotating shows the key **once** with a Copy button, a "save it now" warning, and the connect command for the agent selected on the page with the key filled in.
 
 A full-page redirect is used, not a popup, because popups are blocked or unreliable on mobile.
 
 The JWT and the key live only in the page's memory and are dropped when the dialog closes. Nothing is written to `localStorage`, and nothing secret goes in a URL. `sessionStorage` holds only the OAuth `state` and the reopen flag, and both are deleted as soon as the user returns. The refresh token is not used by the website: if the access token expires mid-flow, the user signs in again.
+
+### Repository picker
+
+The create form offers a dropdown of the user's **public** GitHub repositories instead of a URL field, with **Use a different URL** as a fallback for anything it can't list.
+
+- `GET /api/v1/github/repos/` (JWT) lists the signed-in user's own public repositories, most recently pushed first, at most 300. Each comes with the canonical project ID a key for it would be stored under, so the website can mark repositories that already have a key.
+- The backend calls GitHub with the OAuth app's own credentials (Basic auth with the client ID and secret), never a user token. That uses GitHub's higher rate limit for public data and **adds no scope**: the consent screen stays "read your public profile". Results are cached for 5 minutes per user.
+- Users who didn't sign in with GitHub get an empty list.
+- If GitHub can't be reached, the endpoint returns 502 and the website shows the URL field with a message.
+
+The typed URL stays for:
+- private repositories;
+- organisation repositories and other people's repositories the user contributes to;
+- repositories on other hosts, and folder paths.
+
+Listing private repositories needs either the `repo` scope, which grants read *and write* access to all of the user's code and is rejected, or a GitHub App with read-only metadata access on the repositories the user selects. The GitHub App is the planned route (see Deferred).
 
 ### Normalized project IDs
 
@@ -71,6 +87,6 @@ Every project ID is normalized to one canonical form before it is stored or comp
 ## Deferred
 
 - Per-user keys that cover all of a user's repositories.
-- Picking a repository from the user's GitHub repos (needs an OAuth scope).
+- Private and organisation repositories in the picker, through a GitHub App with read-only metadata access on selected repositories (not the `repo` scope).
 - A dashboard beyond this dialog.
 - Rate limiting key creation per user.

@@ -1,10 +1,14 @@
-"""POST /api/v1/auth/github/: GitHub OAuth code in, contextkit JWT pair out (ADR 028)."""
+"""
+POST /api/v1/auth/github/: GitHub OAuth code in, contextkit JWT pair out (ADR 028).
+GET /api/v1/github/repos/: the signed-in user's public repositories (ADR 030).
+"""
 from rest_framework import serializers, status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from accounts import github, services
 
@@ -36,3 +40,21 @@ class GitHubSignInView(APIView):
         except services.SignInNotAllowed as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
         return Response(tokens, headers={"Cache-Control": "no-store"})
+
+
+class GitHubReposView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    renderer_classes = [JSONRenderer]
+
+    def get(self, request):
+        if not github.is_configured():
+            return Response(
+                {"detail": "GitHub sign-in is not configured on this server."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        try:
+            return Response(services.github_repositories(request.user))
+        except github.GitHubAuthError as exc:
+            # The website falls back to typing the URL.
+            return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)

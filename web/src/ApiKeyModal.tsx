@@ -2,11 +2,13 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   ApiError,
   createKey,
+  listGitHubRepos,
   listKeys,
   revokeKey,
   rotateKey,
   signInWithGitHub,
   type ClientKey,
+  type GitHubRepo,
   type IssuedKey,
 } from './api'
 import { beginGitHubSignIn, redirectUri, type OAuthReturn } from './oauth'
@@ -84,6 +86,11 @@ export default function ApiKeyModal({ open, onClose, setup, agentIndex, oauthRet
   const [pending, setPending] = useState<PendingAction | null>(null)
   const [error, setError] = useState<string | null>(() => initialError(oauthReturn))
   const [busy, setBusy] = useState(false)
+  // The repository picker: null until loaded; a typed URL is always available as a fallback.
+  const [repos, setRepos] = useState<GitHubRepo[] | null>(null)
+  const [reposError, setReposError] = useState<string | null>(null)
+  const [typeUrl, setTypeUrl] = useState(false)
+  const reposRequested = useRef(false)
 
   useEffect(() => {
     const element = dialog.current
@@ -99,6 +106,8 @@ export default function ApiKeyModal({ open, onClose, setup, agentIndex, oauthRet
       setKeys([])
       setIssued(null)
       setPending(null)
+      setRepos(null)
+      reposRequested.current = false
       setStep('signin')
     }
     setError(errorMessage(caught))
@@ -126,6 +135,16 @@ export default function ApiKeyModal({ open, onClose, setup, agentIndex, oauthRet
     })()
   }, [oauthReturn])
 
+  useEffect(() => {
+    // Load once per sign-in, the first time the create form is shown.
+    if (step !== 'create' || !token || reposRequested.current) return
+    reposRequested.current = true
+    listGitHubRepos(token).then(setRepos, (caught: unknown) => {
+      if (caught instanceof ApiError && caught.signedOut) fail(caught)
+      else setReposError(errorMessage(caught))
+    })
+  }, [step, token])
+
   function reset() {
     // Forget the session, the key list and any issued key when the dialog closes.
     setStep('signin')
@@ -135,6 +154,10 @@ export default function ApiKeyModal({ open, onClose, setup, agentIndex, oauthRet
     setPending(null)
     setError(null)
     setBusy(false)
+    setRepos(null)
+    setReposError(null)
+    setTypeUrl(false)
+    reposRequested.current = false
   }
 
   function handleClose() {
@@ -190,6 +213,10 @@ export default function ApiKeyModal({ open, onClose, setup, agentIndex, oauthRet
     setIssued(null)
     if (token) void run(() => showKeys(token))
   }
+
+  // The picker shows while loading and once there are repositories, unless the user chose to type.
+  const showPicker = !typeUrl && !reposError && (repos === null || repos.length > 0)
+  const keyedProjects = new Set(keys.map((key) => key.project_id))
 
   const title = step === 'issued' ? 'Your API key' : step === 'keys' ? 'Your API keys' : 'Get an API key'
   const connectText = issued ? setupWithKey(setup, issued.api_key) : ''
@@ -297,20 +324,52 @@ export default function ApiKeyModal({ open, onClose, setup, agentIndex, oauthRet
 
       {step === 'create' && (
         <form className="form" onSubmit={submitCreate}>
-          <p className="form-intro">
-            A key works for one repository. Any form of its URL works: https, SSH, with or without
-            .git.
+          <p className="form-intro">A key works for one repository.</p>
+          {showPicker ? (
+            <label>
+              Repository
+              <select name="repository" required defaultValue="" disabled={repos === null} autoFocus>
+                <option value="" disabled>
+                  {repos === null ? 'Loading your repositories…' : 'Choose a repository'}
+                </option>
+                {repos?.map((repo) => {
+                  const hasKey = keyedProjects.has(repo.project_id)
+                  return (
+                    <option key={repo.project_id} value={repo.project_id} disabled={hasKey}>
+                      {repo.full_name}
+                      {repo.fork ? ' (fork)' : ''}
+                      {hasKey ? ' — has a key' : ''}
+                    </option>
+                  )
+                })}
+              </select>
+            </label>
+          ) : (
+            <label>
+              Repository URL
+              <input
+                name="repository"
+                placeholder="https://github.com/you/repo"
+                maxLength={500}
+                required
+                autoFocus
+              />
+            </label>
+          )}
+          <p className="field-hint">
+            {showPicker
+              ? 'Only your public repositories are listed. '
+              : reposError
+                ? `${reposError} Enter the URL instead. `
+                : repos?.length === 0
+                  ? 'No public repositories found. Enter the URL instead. '
+                  : 'Any form works: https, SSH, with or without .git. '}
+            {!reposError && (repos === null || repos.length > 0) && (
+              <button type="button" className="link-button" onClick={() => setTypeUrl(!typeUrl)}>
+                {typeUrl ? 'Choose from your repositories' : 'Use a different URL'}
+              </button>
+            )}
           </p>
-          <label>
-            Repository URL
-            <input
-              name="repository"
-              placeholder="https://github.com/you/repo"
-              maxLength={500}
-              required
-              autoFocus
-            />
-          </label>
           <label>
             Key name
             <input name="name" defaultValue={setup.agent} maxLength={255} required />
