@@ -23,6 +23,8 @@ const buildTime: Settings = {
 
 let loaded: Partial<Settings> = {}
 
+const GITHUB_AUTHORIZE_URL = 'https://github.com/login/oauth/authorize'
+
 /** https only, except http on this machine for local development. */
 function validApiBaseUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -88,4 +90,15 @@ export function apiBaseUrl(): string {
 
 export function githubClientId(): string {
   return loaded.githubClientId ?? buildTime.githubClientId
+}
+
+/**
+ * Where "Continue with GitHub" goes. GitHub's page, unless the build sets
+ * VITE_GITHUB_AUTHORIZE_URL (local development with the backend's GitHub mock). Build-time only:
+ * config.json can't redirect sign-in.
+ */
+export function githubAuthorizeUrl(): string {
+  const configured = (import.meta.env.VITE_GITHUB_AUTHORIZE_URL ?? '').trim()
+  // Same rule as the backend URL (https, or http on this machine), keeping the path as written.
+  return configured && validApiBaseUrl(configured) ? configured : GITHUB_AUTHORIZE_URL
 }
