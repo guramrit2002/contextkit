@@ -2,6 +2,7 @@
 import hashlib
 import secrets
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
@@ -81,3 +82,20 @@ def rotate_client_key(user, client_id: str) -> tuple[Client, str]:
 def revoke_client(user, client_id: str) -> None:
     """Delete the client and, by cascade, its key. The key stops working immediately."""
     get_client(user, client_id).delete()
+
+
+def revoke_all_for_user(user_id: str) -> int:
+    """
+    Delete every client of a user and, by cascade, their keys. Returns how many were deleted.
+
+    clients.user_id is a plain string (core reads it without Django), so the database can't
+    cascade a user's deletion to their clients; this does it instead.
+    """
+    _, per_model = Client.objects.filter(user_id=str(user_id)).delete()
+    return per_model.get(Client._meta.label, 0)
+
+
+def orphaned_clients() -> list[Client]:
+    """Clients whose user no longer exists. Their keys still work until revoked."""
+    user_ids = {str(pk) for pk in get_user_model().objects.values_list("pk", flat=True)}
+    return [c for c in Client.objects.order_by("created_at") if c.user_id not in user_ids]
