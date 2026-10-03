@@ -74,6 +74,16 @@ A typed URL stays available (for example, when GitHub's repository list fails), 
 - Creating a key now calls GitHub once. If GitHub is unreachable, creation fails with a "try again" message rather than skipping the check.
 - If a repository is transferred to another GitHub user, the old owner's clients keep working until revoked. The new owner can't register it while those clients exist. This is an operator decision, surfaced by `clients.W002` only if both end up holding clients.
 
+## Amendment (2026-10-04): key names
+
+On the website and the user API, the user picks the **client** (an agent from the list, or a new name) instead of typing a key name. The server names the key `<project>-<client>-<key-id>`: the repository's name, the client in lowercase with hyphens, and the first 8 characters of the **API key's** ID, e.g. `contextkit-claude-code-3f9a1c2b`.
+
+- Because the name ends with the key's ID, the same agent can hold several keys on one project.
+- Rotating a key gives it a new ID, and the name's last part follows it. Names that don't end with the current key's ID (operator names) are never changed.
+- The `(user_id, project_id, lower(name))` constraint stays, and still applies to names given by operators (admin, `manage.py create_client`), which keep the name they're given.
+- The API takes `client`; `name` is still accepted as an alias for older callers.
+- Existing clients keep their names.
+
 ## Deferred
 
 - Team sharing with invitations.

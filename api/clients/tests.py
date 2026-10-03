@@ -517,3 +517,30 @@ class ClientsPerProjectMigrationTests(TransactionTestCase):
         self.migrate([("clients", "0002_normalize_project_ids")])
 
         self.assertEqual(Client.objects.count(), 1)
+
+
+class KeyNameTests(TestCase):
+    """`<project>-<client>-<key-id>` (user API and website)."""
+
+    def test_builds_from_repository_client_and_id(self):
+        from clients.services import key_name
+
+        key_id = "3f9a1c2b-0000-4000-8000-000000000000"
+        cases = [
+            ("https://github.com/acme/contextkit", "Claude Code", "contextkit-claude-code"),
+            ("https://github.com/acme/my.app", "VS Code (Copilot)", "my-app-vs-code-copilot"),
+            ("/Users/me/Side Project/", "ci bot", "side-project-ci-bot"),
+            ("https://github.com/acme/app", "***", "app-client"),
+        ]
+        for project_id, client, expected in cases:
+            with self.subTest(client=client):
+                self.assertEqual(key_name(project_id, client, key_id), f"{expected}-3f9a1c2b")
+
+    def test_operator_paths_keep_the_name_they_are_given(self):
+        client, _ = create_client(
+            user_id="u1", project_id="https://github.com/acme/app", name="ci-bot"
+        )
+        issue_api_key(client)  # rotation leaves a name that isn't <...>-<key-id> alone
+
+        client.refresh_from_db()
+        self.assertEqual(client.name, "ci-bot")

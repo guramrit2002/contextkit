@@ -154,9 +154,41 @@ class CreateTests(UserApiTestCase):
         response = self.create(name="Codex")
 
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(
-            sorted(Client.objects.values_list("name", flat=True)), ["Claude Code", "Codex"]
-        )
+        names = sorted(Client.objects.values_list("name", flat=True))
+        self.assertRegex(names[0], r"^app-claude-code-[0-9a-f]{8}$")
+        self.assertRegex(names[1], r"^app-codex-[0-9a-f]{8}$")
+
+    def test_key_name_is_project_client_and_key_id(self):
+        self.login()
+
+        payload = {"project_id": "git@github.com:Acme/My.App.git", "client": "VS Code (Copilot)"}
+        body = self.http.post(CLIENTS, payload, format="json").json()
+
+        key_id = ApiKey.objects.get(client_id=body["id"]).id
+        self.assertEqual(body["name"], f"my-app-vs-code-copilot-{key_id[:8]}")
+        self.assertNotEqual(key_id[:8], body["id"][:8])  # the API key's ID, not the client's
+
+    def test_rotating_renames_the_key_to_the_new_key_id(self):
+        self.login()
+        created = self.create(project_id="https://github.com/acme/app", name="Codex").json()
+        old_key_id = ApiKey.objects.get(client_id=created["id"]).id
+
+        rotated = self.http.post(f"{detail(created['id'])}rotate/").json()
+
+        new_key_id = ApiKey.objects.get(client_id=created["id"]).id
+        self.assertNotEqual(new_key_id, old_key_id)
+        self.assertEqual(rotated["name"], f"app-codex-{new_key_id[:8]}")
+        self.assertEqual(Client.objects.get(id=created["id"]).name, rotated["name"])
+
+    def test_client_or_its_older_alias_name_is_required(self):
+        self.login()
+
+        payload = {"project_id": "https://github.com/acme/app"}
+        response = self.http.post(CLIENTS, payload, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"client": ["Choose a client or enter a name."]})
+        self.assertFalse(Client.objects.exists())
 
     def test_create_stores_and_returns_the_canonical_project_id(self):
         self.login()
@@ -167,17 +199,15 @@ class CreateTests(UserApiTestCase):
         self.assertEqual(response.json()["project_id"], "https://github.com/acme/app")
         self.assertEqual(Client.objects.get().project_id, "https://github.com/acme/app")
 
-    def test_same_name_in_any_case_or_url_form_is_refused_under_name(self):
+    def test_the_same_agent_twice_gets_two_distinct_keys(self):
         self.login()
-        self.create(project_id="https://github.com/acme/app", name="Claude Code")
+        first = self.create(project_id="https://github.com/acme/app", name="Claude Code").json()
 
-        response = self.create(project_id="git@github.com:acme/app.git", name="  claude code ")
+        second = self.create(project_id="git@github.com:acme/app.git", name="  claude code ").json()
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json(), {"name": [
-            "This project already has a key named claude code. Rotate it, or choose another name."
-        ]})
-        self.assertEqual(Client.objects.count(), 1)
+        self.assertNotEqual(first["name"], second["name"])
+        self.assertNotEqual(first["api_key"], second["api_key"])
+        self.assertEqual(Client.objects.count(), 2)
 
     def test_another_user_cannot_register_the_same_project(self):
         self.login()
@@ -403,7 +433,9 @@ class KeysPerAgentTests(UserApiMixin, TransactionTestCase):
     def test_list_returns_every_agent_of_the_project(self):
         listing = self.http.get(CLIENTS).json()
 
-        self.assertEqual({c["name"] for c in listing}, {"Claude Code", "Codex"})
+        self.assertEqual(
+            {c["name"].rsplit("-", 1)[0] for c in listing}, {"app-claude-code", "app-codex"}
+        )
         self.assertEqual({c["project_id"] for c in listing}, {"https://github.com/acme/app"})
 
     def test_rotating_one_agent_leaves_the_other_working(self):

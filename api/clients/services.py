@@ -1,5 +1,6 @@
 """Issuing clients and API keys. Only the SHA-256 hash of a key is ever stored."""
 import hashlib
+import re
 import secrets
 from urllib.parse import urlsplit
 
@@ -9,10 +10,11 @@ from django.db import transaction
 
 from accounts import github
 from accounts.models import GitHubIdentity
-from clients.models import ApiKey, Client
+from clients.models import ApiKey, Client, new_id
 from core.projects import normalize_project_id
 
 KEY_PREFIX = "ck_"
+KEY_ID_LENGTH = 8  # how much of the API key's ID a key name shows
 DUPLICATE_NAME_MESSAGE = (
     "This project already has a key named {name}. Rotate it, or choose another name."
 )
@@ -31,11 +33,23 @@ def generate_api_key() -> str:
 
 
 @transaction.atomic
-def issue_api_key(client: Client) -> str:
-    """Create a new key for the client, replacing any existing one. Returns the plaintext key."""
+def issue_api_key(client: Client, key_id: str | None = None) -> str:
+    """
+    Create a new key for the client, replacing any existing one. Returns the plaintext key.
+
+    A name built as `<project>-<client>-<key-id>` tracks the key: on rotation its last part
+    becomes the new key's ID. Any other name (e.g. one an operator chose) is left alone.
+    """
     api_key = generate_api_key()
-    ApiKey.objects.filter(client=client).delete()
-    ApiKey.objects.create(client=client, key_hash=hash_api_key(api_key))
+    previous = ApiKey.objects.filter(client=client).first()
+    new_key = ApiKey(id=key_id or new_id(), client=client, key_hash=hash_api_key(api_key))
+    if previous is not None:
+        suffix = f"-{previous.id[:KEY_ID_LENGTH]}"
+        if client.name.endswith(suffix):
+            client.name = client.name[: -len(suffix)] + f"-{new_key.id[:KEY_ID_LENGTH]}"
+            client.save(update_fields=["name", "updated_at"])
+        previous.delete()
+    new_key.save()
     return api_key
 
 
@@ -82,7 +96,22 @@ def ensure_owns_on_github(user, project_id: str) -> None:
 
 
 @transaction.atomic
-def create_client(*, user_id: str, project_id: str, name: str) -> tuple[Client, str]:
+def _slug(text: str, limit: int) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:limit].strip("-")
+
+
+def key_name(project_id: str, client: str, key_id: str) -> str:
+    """
+    `<project>-<client>-<key-id>`, e.g. contextkit-claude-code-3f9a1c2b: the repository's name,
+    the client in lowercase with hyphens, and the first 8 characters of the API key's ID.
+    """
+    project = _slug(project_id.rstrip("/").rsplit("/", 1)[-1], 100) or "project"
+    return f"{project}-{_slug(client, 100) or 'client'}-{key_id[:KEY_ID_LENGTH]}"
+
+
+def create_client(
+    *, user_id: str, project_id: str, name: str, key_id: str | None = None
+) -> tuple[Client, str]:
     """
     Create a client assigned to one project and issue its API key.
 
@@ -100,7 +129,7 @@ def create_client(*, user_id: str, project_id: str, name: str) -> tuple[Client, 
     client = Client(user_id=user_id, project_id=project_id, name=name)
     client.full_clean()
     client.save()
-    return client, issue_api_key(client)
+    return client, issue_api_key(client, key_id)
 
 
 def owner_id(user) -> str:
@@ -121,13 +150,25 @@ def get_client(user, client_id: str) -> Client:
     return Client.objects.select_related("api_key").get(id=client_id, user_id=owner_id(user))
 
 
-def create_client_for_user(user, *, project_id: str, name: str) -> tuple[Client, str]:
-    """The user API and website: only the project's owner, proven on GitHub (ADR 031)."""
+def create_client_for_user(user, *, project_id: str, client: str) -> tuple[Client, str]:
+    """
+    The user API and website: only the project's owner, proven on GitHub (ADR 031).
+
+    `client` is the agent or integration (e.g. "Claude Code"); the key's name is built from it
+    as `<project>-<client>-<key-id>` with the API key's ID, so the same agent can hold several
+    keys on one project.
+    """
     user_id, project_id = owner_id(user), canonical_project_id(project_id)
     ensure_single_owner(user_id, project_id)
     # Outside the database transaction: a slow GitHub must not hold one open.
     ensure_owns_on_github(user, project_id)
-    return create_client(user_id=user_id, project_id=project_id, name=name)
+    key_id = new_id()  # assigned up front, so the name can include it
+    return create_client(
+        user_id=user_id,
+        project_id=project_id,
+        name=key_name(project_id, client, key_id),
+        key_id=key_id,
+    )
 
 
 def rotate_client_key(user, client_id: str) -> tuple[Client, str]:

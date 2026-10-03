@@ -9,7 +9,21 @@ class CreateClientRequest(serializers.Serializer):
         max_length=500,
         help_text="Repository URL (any form: https, SSH, with or without .git)",
     )
-    name = serializers.CharField(max_length=255)
+    client = serializers.CharField(
+        max_length=100,
+        required=False,
+        help_text="The agent or integration, e.g. Claude Code. The key's name is built from it.",
+    )
+    # Older callers send `name`; it means the same as `client`.
+    name = serializers.CharField(max_length=100, required=False, write_only=True)
+
+    def validate(self, attrs):
+        client = (attrs.pop("client", None) or attrs.pop("name", None) or "").strip()
+        attrs.pop("name", None)
+        if not client:
+            raise serializers.ValidationError({"client": ["Choose a client or enter a name."]})
+        attrs["client"] = client
+        return attrs
 
 
 class ClientSerializer(serializers.ModelSerializer):
