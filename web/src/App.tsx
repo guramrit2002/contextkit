@@ -1,79 +1,12 @@
 import { useEffect, useState } from 'react'
+import ApiKeyModal from './ApiKeyModal'
+import { isConfigured } from './api'
+import { takeOAuthReturn } from './oauth'
+import { SETUPS } from './setups'
 
 const REPO_URL = 'https://github.com/guramrit2002/contextkit'
-const MCP_URL = 'https://contextkit.onrender.com/mcp'
-const AUTH_HEADER = 'Authorization: Bearer ck_...'
 // HEAD resolves to the default branch on GitHub.
 const GUIDES_URL = `${REPO_URL}/blob/HEAD/docs/guide`
-
-interface AgentSetup {
-  agent: string
-  /** File name of the agent's guide in docs/guide/, without `.md`. */
-  guide: string
-  /** A terminal command, or a snippet to add to a config file. */
-  kind: 'command' | 'config'
-  /** Where a config snippet goes. */
-  file?: string
-  text: string
-}
-
-const SETUPS: AgentSetup[] = [
-  {
-    agent: 'Claude Code',
-    guide: 'claude-code',
-    kind: 'command',
-    text: `claude mcp add --transport http contextkit ${MCP_URL} --header "${AUTH_HEADER}"`,
-  },
-  {
-    agent: 'Gemini CLI',
-    guide: 'gemini-cli',
-    kind: 'command',
-    text: `gemini mcp add --transport http contextkit ${MCP_URL} --header "${AUTH_HEADER}"`,
-  },
-  {
-    agent: 'VS Code (Copilot)',
-    guide: 'vscode',
-    kind: 'command',
-    text: `code --add-mcp '{"name":"contextkit","type":"http","url":"${MCP_URL}","headers":{"Authorization":"Bearer ck_..."}}'`,
-  },
-  {
-    agent: 'Cursor',
-    guide: 'cursor',
-    kind: 'config',
-    file: '~/.cursor/mcp.json',
-    text: `{
-  "mcpServers": {
-    "contextkit": {
-      "url": "${MCP_URL}",
-      "headers": { "Authorization": "Bearer ck_..." }
-    }
-  }
-}`,
-  },
-  {
-    agent: 'Windsurf',
-    guide: 'windsurf',
-    kind: 'config',
-    file: '~/.codeium/windsurf/mcp_config.json',
-    text: `{
-  "mcpServers": {
-    "contextkit": {
-      "serverUrl": "${MCP_URL}",
-      "headers": { "Authorization": "Bearer ck_..." }
-    }
-  }
-}`,
-  },
-  {
-    agent: 'Codex',
-    guide: 'codex',
-    kind: 'config',
-    file: '~/.codex/config.toml',
-    text: `[mcp_servers.contextkit]
-url = "${MCP_URL}"
-http_headers = { "Authorization" = "Bearer ck_..." }`,
-  },
-]
 
 const FEATURES = [
   'API-key auth on every call',
@@ -229,9 +162,20 @@ function HandoffDiagram({ step }: { step: number }) {
   )
 }
 
+function validAgentIndex(index: number): number {
+  return Number.isInteger(index) && index >= 0 && index < SETUPS.length ? index : 0
+}
+
 export default function App() {
   const step = useAgentStep()
-  const [selected, setSelected] = useState(0)
+  // Read once: GitHub's code and state are stripped from the address bar as they are read.
+  const [oauthReturn] = useState(takeOAuthReturn)
+  const [selected, setSelected] = useState(() =>
+    oauthReturn.kind === 'none' ? 0 : validAgentIndex(oauthReturn.agentIndex),
+  )
+  const [keyDialogOpen, setKeyDialogOpen] = useState(
+    () => isConfigured() && oauthReturn.kind !== 'none',
+  )
   const setup = SETUPS[selected]
 
   return (
@@ -241,9 +185,20 @@ export default function App() {
           <img src="/favicon.svg" alt="" width="28" height="28" />
           contextkit
         </a>
-        <a className="bar-icon" href={REPO_URL} aria-label="contextkit on GitHub" title="GitHub">
-          <GitHubMark />
-        </a>
+        <div className="bar-actions">
+          {isConfigured() && (
+            <button
+              type="button"
+              className="button small"
+              onClick={() => setKeyDialogOpen(true)}
+            >
+              Get key
+            </button>
+          )}
+          <a className="bar-icon" href={REPO_URL} aria-label="contextkit on GitHub" title="GitHub">
+            <GitHubMark />
+          </a>
+        </div>
       </header>
 
       <section className="content">
@@ -279,6 +234,16 @@ export default function App() {
 
         <HandoffDiagram step={step} />
       </section>
+
+      {isConfigured() && (
+        <ApiKeyModal
+          open={keyDialogOpen}
+          onClose={() => setKeyDialogOpen(false)}
+          setup={setup}
+          agentIndex={selected}
+          oauthReturn={oauthReturn}
+        />
+      )}
     </main>
   )
 }

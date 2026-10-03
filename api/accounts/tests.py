@@ -1,4 +1,4 @@
-"""GitHub sign-in (ADR 028). GitHub itself is mocked at the two network calls."""
+"""GitHub sign-in (ADR 028) and the repository picker (ADR 030). GitHub itself is mocked."""
 from unittest import mock
 
 from django.contrib.auth.models import User
@@ -146,3 +146,146 @@ class GitHubClientTests(TestCase):
         with mock.patch("urllib.request.urlopen", side_effect=TimeoutError()):
             with self.assertRaises(github.GitHubAuthError):
                 github.fetch_user("gho_x")
+
+
+def repo(name, private=False, fork=False, pushed="2026-09-01T00:00:00Z"):
+    return {
+        "full_name": f"octocat/{name}", "html_url": f"https://github.com/octocat/{name}",
+        "private": private, "fork": fork, "pushed_at": pushed,
+    }
+
+
+class GitHubRepoListingTests(TestCase):
+    """The HTTP layer for GET /users/{login}/repos."""
+
+    def pages(self, *pages):
+        responses = []
+        for payload in pages:
+            response = mock.MagicMock()
+            response.__enter__.return_value.read.return_value = __import__("json").dumps(
+                payload
+            ).encode()
+            responses.append(response)
+        return mock.patch("urllib.request.urlopen", side_effect=responses)
+
+    @mock.patch.dict("os.environ", CONFIGURED)
+    def test_lists_public_repos_with_app_credentials_and_no_user_token(self):
+        with self.pages([repo("App"), repo("secret", private=True)]) as urlopen:
+            repos = github.list_public_repos("octocat")
+
+        self.assertEqual([r.full_name for r in repos], ["octocat/App"])
+        request = urlopen.call_args.args[0]
+        self.assertTrue(request.full_url.startswith("https://api.github.com/users/octocat/repos?"))
+        self.assertIn("type=owner", request.full_url)
+        self.assertIn("sort=pushed", request.full_url)
+        # Basic auth with the app's id:secret ("id:secret" base64), not a user token.
+        self.assertEqual(request.headers["Authorization"], "Basic aWQ6c2VjcmV0")
+
+    @mock.patch.dict("os.environ", CONFIGURED)
+    def test_follows_pages_until_a_short_one(self):
+        full = [repo(f"r{i}") for i in range(github.REPOS_PER_PAGE)]
+        with self.pages(full, [repo("last")]) as urlopen:
+            repos = github.list_public_repos("octocat")
+
+        self.assertEqual(len(repos), github.REPOS_PER_PAGE + 1)
+        self.assertEqual(urlopen.call_count, 2)
+
+    @mock.patch.dict("os.environ", CONFIGURED)
+    def test_stops_after_the_page_limit(self):
+        full = [repo(f"r{i}") for i in range(github.REPOS_PER_PAGE)]
+        with self.pages(*[full] * (github.MAX_REPO_PAGES + 1)) as urlopen:
+            github.list_public_repos("octocat")
+
+        self.assertEqual(urlopen.call_count, github.MAX_REPO_PAGES)
+
+    @mock.patch.dict("os.environ", CONFIGURED)
+    def test_unexpected_answer_or_unreachable_github_raises_a_clean_error(self):
+        with self.pages({"message": "Not Found"}), self.assertRaises(github.GitHubAuthError):
+            github.list_public_repos("ghost")
+        with mock.patch("urllib.request.urlopen", side_effect=TimeoutError()), \
+                self.assertRaisesMessage(github.GitHubAuthError, "Could not load"):
+            github.list_public_repos("octocat")
+
+
+REPOS = "/api/v1/github/repos/"
+
+
+class GitHubReposEndpointTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.http = HttpClient()
+        env = mock.patch.dict("os.environ", CONFIGURED)
+        env.start()
+        self.addCleanup(env.stop)
+
+    def sign_in(self, gh_user=github.GitHubUser(101, "octocat")):
+        with mock.patch.object(github, "exchange_code", return_value="gh-token"), \
+                mock.patch.object(github, "fetch_user", return_value=gh_user):
+            access = self.http.post(URL, {"code": "c"}, format="json").json()["access"]
+        self.http.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
+
+    def listing(self, repos):
+        return mock.patch.object(github, "list_public_repos", return_value=repos)
+
+    def test_needs_a_jwt(self):
+        self.assertEqual(self.http.get(REPOS).status_code, 401)
+
+    def test_returns_repos_with_their_canonical_project_id(self):
+        self.sign_in()
+        repos = [
+            github.GitHubRepo("octocat/App", "https://github.com/octocat/App", "2026-09-01", True)
+        ]
+
+        with self.listing(repos) as listed:
+            response = self.http.get(REPOS)
+
+        listed.assert_called_once_with("octocat")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {
+            "login": "octocat",
+            "repositories": [{
+                "full_name": "octocat/App", "project_id": "https://github.com/octocat/app",
+                "pushed_at": "2026-09-01", "fork": True,
+            }],
+        })
+
+    def test_listing_is_cached_per_user(self):
+        self.sign_in()
+
+        with self.listing([]) as listed:
+            self.http.get(REPOS)
+            self.http.get(REPOS)
+
+        self.assertEqual(listed.call_count, 1)
+
+    def test_password_users_get_an_empty_list(self):
+        User.objects.create_user("plain", password="plain-pass-123")
+        access = self.http.post(
+            "/api/v1/auth/token/", {"username": "plain", "password": "plain-pass-123"},
+            format="json",
+        ).json()["access"]
+        self.http.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
+
+        with self.listing([]) as listed:
+            response = self.http.get(REPOS)
+
+        listed.assert_not_called()
+        self.assertEqual(response.json(), {"login": None, "repositories": []})
+
+    def test_github_failure_is_502(self):
+        self.sign_in()
+
+        with mock.patch.object(
+            github, "list_public_repos",
+            side_effect=github.GitHubAuthError("Could not load your GitHub repositories."),
+        ):
+            response = self.http.get(REPOS)
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json()["detail"], "Could not load your GitHub repositories.")
+
+    def test_not_configured_is_503(self):
+        self.sign_in()
+
+        with mock.patch.dict("os.environ", {"GITHUB_CLIENT_SECRET": ""}):
+            self.assertEqual(self.http.get(REPOS).status_code, 503)

@@ -12,7 +12,7 @@ from core import storage
 from core.migrations import include_name
 from core.models import Base
 
-HEAD = "0003"
+HEAD = "0004"
 
 LEGACY_SCHEMA = """
 CREATE TABLE projects (
@@ -223,3 +223,128 @@ def test_offline_mode_renders_sql(db_path, capsys):
     output = capsys.readouterr().out
     assert "CREATE TABLE audit_log" in output
     assert not db_path.exists()
+
+
+# 0004: project-ID normalization (ADR 030)
+
+
+def _seed_project(conn, project_id, git_remote=None, created_at="2026-01-01"):
+    conn.execute(
+        "INSERT INTO projects (id, name, git_remote, local_path, user_id, created_at, updated_at) "
+        "VALUES (?, ?, ?, '/tmp/app', 'u1', ?, ?)",
+        (project_id, project_id.rsplit("/", 1)[-1], git_remote, created_at, created_at),
+    )
+
+
+def _seed_children(conn, project_id, suffix, state_updated_at=None):
+    conn.execute(
+        "INSERT INTO decisions (id, project_id, user_id, decision, reasoning, created_at) "
+        "VALUES (?, ?, 'u1', ?, 'R', '2026-01-01')",
+        (f"d-{suffix}", project_id, f"decision {suffix}"),
+    )
+    conn.execute(
+        "INSERT INTO sessions (id, project_id, user_id, summary, created_at) "
+        "VALUES (?, ?, 'u1', ?, '2026-01-01')",
+        (f"s-{suffix}", project_id, f"session {suffix}"),
+    )
+    if state_updated_at:
+        conn.execute(
+            "INSERT INTO state (id, project_id, user_id, progress, next_steps, updated_at, "
+            "created_at) VALUES (?, ?, 'u1', ?, 'N', ?, '2026-01-01')",
+            (f"st-{suffix}", project_id, f"progress {suffix}", state_updated_at),
+        )
+
+
+def _rows(path, sql):
+    with sqlite3.connect(path) as conn:
+        return conn.execute(sql).fetchall()
+
+
+def test_0004_renames_a_git_suffixed_project_and_moves_its_records(db_path):
+    command.upgrade(storage._alembic_config(), "0003")
+    old = "https://github.com/Owner/contextkit.git"
+    with sqlite3.connect(db_path) as conn:
+        _seed_project(conn, old, "git@github.com:Owner/contextkit.git")
+        _seed_children(conn, old, "a", "2026-01-02")
+
+    command.upgrade(storage._alembic_config(), "0004")
+
+    canonical = "https://github.com/owner/contextkit"
+    assert _rows(db_path, "SELECT id, name, git_remote, local_path, created_at FROM projects") == [
+        (canonical, "contextkit", canonical, "/tmp/app", "2026-01-01")
+    ]
+    for table in ("decisions", "sessions", "state"):
+        assert _rows(db_path, f"SELECT DISTINCT project_id FROM {table}") == [(canonical,)]
+
+
+def test_0004_merges_variants_of_one_project_keeping_the_newest_state(db_path):
+    command.upgrade(storage._alembic_config(), "0003")
+    with sqlite3.connect(db_path) as conn:
+        _seed_project(conn, "https://github.com/o/r", created_at="2026-01-01")
+        _seed_children(conn, "https://github.com/o/r", "canonical", "2026-01-05")
+        _seed_project(conn, "git@github.com:o/r.git", created_at="2026-01-02")
+        _seed_children(conn, "git@github.com:o/r.git", "scp", "2026-01-09")
+        _seed_project(conn, "https://github.com/o/r.git", created_at="2026-01-03")
+        _seed_children(conn, "https://github.com/o/r.git", "dotgit", "2026-01-07")
+
+    command.upgrade(storage._alembic_config(), "0004")
+
+    assert _rows(db_path, "SELECT id FROM projects") == [("https://github.com/o/r",)]
+    assert sorted(_rows(db_path, "SELECT id FROM decisions")) == [
+        ("d-canonical",), ("d-dotgit",), ("d-scp",),
+    ]
+    assert _rows(db_path, "SELECT DISTINCT project_id FROM sessions") == [
+        ("https://github.com/o/r",)
+    ]
+    assert len(_rows(db_path, "SELECT id FROM sessions")) == 3
+    assert _rows(db_path, "SELECT project_id, progress FROM state") == [
+        ("https://github.com/o/r", "progress scp")
+    ]
+
+
+def test_0004_normalizes_a_raw_remote_on_an_already_canonical_project(db_path):
+    command.upgrade(storage._alembic_config(), "0003")
+    with sqlite3.connect(db_path) as conn:
+        _seed_project(conn, "local-proj", "git@github.com:o/r.git")
+
+    command.upgrade(storage._alembic_config(), "0004")
+
+    assert _rows(db_path, "SELECT id, git_remote FROM projects") == [
+        ("local-proj", "https://github.com/o/r")
+    ]
+
+
+def test_0004_rewrites_audit_log_project_ids(db_path):
+    command.upgrade(storage._alembic_config(), "0003")
+    too_long = "github.com/" + "a" * 495
+    with sqlite3.connect(db_path) as conn:
+        for i, project_id in enumerate(["git@github.com:o/r.git", "proj-1", None, too_long]):
+            conn.execute(
+                "INSERT INTO audit_log (id, tool_name, project_id, timestamp, status) "
+                "VALUES (?, 'get_context', ?, '2026-01-01', 'success')",
+                (f"e{i}", project_id),
+            )
+
+    command.upgrade(storage._alembic_config(), "0004")
+
+    assert _rows(db_path, "SELECT project_id FROM audit_log ORDER BY id") == [
+        ("https://github.com/o/r",), ("proj-1",), (None,), (too_long,),
+    ]
+
+
+def test_0004_downgrade_is_a_no_op_that_keeps_canonical_ids(db_path):
+    command.upgrade(storage._alembic_config(), "0003")
+    with sqlite3.connect(db_path) as conn:
+        _seed_project(conn, "https://github.com/o/r.git")
+    command.upgrade(storage._alembic_config(), "0004")
+
+    command.downgrade(storage._alembic_config(), "0003")
+
+    assert _rows(db_path, "SELECT id FROM projects") == [("https://github.com/o/r",)]
+    assert _revision(db_path) == "0003"
+
+
+def test_0004_is_skipped_in_offline_mode(db_path, capsys):
+    command.upgrade(storage._alembic_config(), "0003:0004", sql=True)
+
+    assert "UPDATE alembic_version SET version_num='0004'" in capsys.readouterr().out

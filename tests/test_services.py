@@ -83,3 +83,23 @@ async def test_export_markdown_renders_full_context(isolated_db):
     assert "**Progress:**\nCore service exists" in markdown
     assert "**What:** Keep core plain Python" in markdown
     assert "Added service functions" in markdown
+
+
+@pytest.mark.asyncio
+async def test_non_canonical_project_id_writes_under_the_canonical_id(isolated_db):
+    # Agents may send any URL form of their repository (ADR 030).
+    await services.log_decision(
+        project_id="git@github.com:Owner/Repo.git", decision="D", reasoning="R"
+    )
+    await services.update_state(
+        project_id="https://github.com/owner/repo/", progress="P", next_steps="N"
+    )
+    await services.log_session(project_id="github.com/OWNER/repo", summary="S")
+
+    briefing = await services.get_briefing(project_id="http://github.com/owner/repo.git")
+
+    assert briefing["project"]["id"] == "https://github.com/owner/repo"
+    assert briefing["project"]["name"] == "repo"
+    assert [d["decision"] for d in briefing["decisions"]] == ["D"]
+    assert briefing["current_state"]["progress"] == "P"
+    assert [s["summary"] for s in briefing["recent_sessions"]] == ["S"]

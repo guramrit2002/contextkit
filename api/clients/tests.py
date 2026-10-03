@@ -17,7 +17,13 @@ from django.urls import reverse
 
 from api import settings as project_settings
 from clients.models import ApiKey, Client
-from clients.services import KEY_PREFIX, create_client, hash_api_key, issue_api_key
+from clients.services import (
+    DUPLICATE_PROJECT_MESSAGE,
+    KEY_PREFIX,
+    create_client,
+    hash_api_key,
+    issue_api_key,
+)
 from core.auth import authenticate_client
 from core.config import REPO_ROOT, resolve_django_db_path
 
@@ -72,6 +78,19 @@ class CreateClientTests(TestCase):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValidationError):
                 create_client(**kwargs)
         self.assertEqual(Client.objects.count(), 0)
+
+    def test_stores_the_canonical_project_id(self):
+        client, _ = create_client(user_id="u1", project_id="git@github.com:Acme/App.git", name="a")
+
+        self.assertEqual(client.project_id, "https://github.com/acme/app")
+        self.assertEqual(Client.objects.get().project_id, "https://github.com/acme/app")
+
+    def test_another_form_of_the_same_repository_is_a_duplicate(self):
+        create_client(user_id="u1", project_id="https://github.com/acme/app", name="a")
+
+        with self.assertRaisesMessage(ValidationError, DUPLICATE_PROJECT_MESSAGE):
+            create_client(user_id="u1", project_id="git@github.com:acme/app.git", name="b")
+        self.assertEqual(Client.objects.count(), 1)
 
     def test_strips_whitespace(self):
         client, _ = create_client(user_id=" u1 ", project_id=" proj-1 ", name=" builder ")
@@ -257,6 +276,24 @@ class ClientAdminTests(TestCase):
         listing = self.client.get(reverse("admin:clients_client_changelist"))
         self.assertNotIn(api_key, listing.content.decode())
 
+    def test_adding_a_client_stores_the_canonical_project_id(self):
+        self.client.post(reverse("admin:clients_client_add"), {
+            "name": "ci-bot", "user_id": "alice", "project_id": "git@github.com:Acme/App.git",
+        })
+
+        self.assertEqual(Client.objects.get().project_id, "https://github.com/acme/app")
+
+    def test_admin_refuses_another_form_of_an_existing_repository(self):
+        create_client(user_id="alice", project_id="https://github.com/acme/app", name="bot")
+
+        response = self.client.post(reverse("admin:clients_client_add"), {
+            "name": "dup", "user_id": "alice", "project_id": "github.com/acme/app",
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Client.objects.count(), 1)
+        self.assertTrue(response.context["adminform"].form.errors)
+
     def test_editing_a_client_keeps_its_key(self):
         client, api_key = create_client(user_id="alice", project_id="proj-1", name="bot")
 
@@ -311,3 +348,55 @@ class ClientAdminTests(TestCase):
         response = self.client.post(change_url, {"key_hash": "tampered"})
         self.assertEqual(response.status_code, 403)
         self.assertEqual(ApiKey.objects.get().key_hash, key.key_hash)
+
+
+class NormalizeProjectIdsMigrationTests(TransactionTestCase):
+    """ADR 030: clients are moved to canonical project IDs; collisions stop the migration."""
+
+    def migrate(self, target):
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(target)
+
+    def tearDown(self):
+        self.migrate([("clients", "0002_normalize_project_ids")])
+
+    def add(self, client_id, user_id, project_id):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO clients (id, user_id, project_id, name, created_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, '2026-09-01 00:00:00', '2026-09-01 00:00:00')",
+                [client_id, user_id, project_id, f"name-{client_id}"],
+            )
+
+    def test_project_ids_are_normalized(self):
+        self.migrate([("clients", "0001_initial")])
+        self.add("c1", "alice", "https://github.com/Acme/App.git")
+        self.add("c2", "alice", "local-proj")
+        self.add("c3", "bob", "git@github.com:acme/app.git")
+
+        self.migrate([("clients", "0002_normalize_project_ids")])
+
+        self.assertEqual(
+            dict(Client.objects.values_list("id", "project_id")),
+            {
+                "c1": "https://github.com/acme/app",
+                "c2": "local-proj",
+                "c3": "https://github.com/acme/app",
+            },
+        )
+
+    def test_same_user_collision_raises_and_deletes_nothing(self):
+        self.migrate([("clients", "0001_initial")])
+        self.add("c1", "alice", "https://github.com/acme/app")
+        self.add("c2", "alice", "git@github.com:acme/app.git")
+
+        with self.assertRaises(RuntimeError) as caught:
+            self.migrate([("clients", "0002_normalize_project_ids")])
+
+        message = str(caught.exception)
+        self.assertIn("c1 ('name-c1'", message)
+        self.assertIn("c2 ('name-c2'", message)
+
+        self.assertEqual(Client.objects.count(), 2)
+        Client.objects.filter(id="c2").delete()  # the operator revokes one, then reruns

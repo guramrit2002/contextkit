@@ -256,9 +256,12 @@ def test_local_projects_still_record_git_remote_and_path(core_db):
     storage.init_db()
     session = storage.get_session()
     try:
-        with mock.patch.object(storage.subprocess, "check_output", return_value="git@x:y.git\n"):
+        with mock.patch.object(
+            storage.subprocess, "check_output", return_value="git@github.com:Owner/Repo.git\n"
+        ):
             project = storage.get_or_create_project("local-proj", session)
-        assert project.git_remote == "git@x:y.git"
+        # Recorded in canonical form, never as the raw scp-style remote (ADR 030).
+        assert project.git_remote == "https://github.com/owner/repo"
         assert project.local_path
     finally:
         session.close()

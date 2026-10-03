@@ -137,6 +137,28 @@ class CreateTests(UserApiTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Client.objects.count(), 1)
 
+    def test_create_stores_and_returns_the_canonical_project_id(self):
+        self.login()
+
+        response = self.create(project_id="git@github.com:Acme/App.git")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["project_id"], "https://github.com/acme/app")
+        self.assertEqual(Client.objects.get().project_id, "https://github.com/acme/app")
+
+    def test_another_form_of_the_same_repository_says_rotate_instead(self):
+        self.login()
+        self.create(project_id="https://github.com/acme/app")
+
+        response = self.create(project_id="git@github.com:acme/app.git", name="second")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {"project_id": ["You already have a key for this repository. Rotate it instead."]},
+        )
+        self.assertEqual(Client.objects.count(), 1)
+
     def test_other_users_can_use_the_same_project(self):
         self.login()
         self.create()

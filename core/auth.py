@@ -9,6 +9,7 @@ from core import storage
 from core.audit import log_audit_event
 from core.config import config
 from core.errors import AuthenticationError, AuthorizationError
+from core.projects import normalize_or_keep
 
 T = TypeVar("T")
 
@@ -59,7 +60,9 @@ def validate_client_project_access(
     client: ClientContext, requested_project_id: Optional[str]
 ) -> str:
     """Return the project the client may act on. An omitted project means its assigned one."""
-    if requested_project_id and requested_project_id != client.project_id:
+    if requested_project_id and normalize_or_keep(requested_project_id) != normalize_or_keep(
+        client.project_id
+    ):
         raise AuthorizationError(
             f"Client is not authorized for project {requested_project_id}"
         )

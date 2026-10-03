@@ -3,6 +3,7 @@ import logging
 from typing import Optional
 
 from core import storage
+from core.projects import normalize_or_keep
 from core.redaction import SecretRedactor
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,9 @@ def log_audit_event(
     if error_message:
         # Exceptions can echo user input, and nothing is stored before redaction.
         error_message = SecretRedactor.redact(error_message)[:MAX_ERROR_LENGTH]
+
+    # Denied calls record the ID as the caller sent it; store the canonical form when there is one.
+    project_id = normalize_or_keep(project_id)
 
     try:
         storage.create_audit_log_entry(

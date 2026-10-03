@@ -6,7 +6,7 @@ from alembic import command
 from core import storage
 from core.db_init import core_schema_status
 
-HEAD = "0003"
+HEAD = "0004"
 
 
 @pytest.fixture()

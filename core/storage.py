@@ -23,6 +23,7 @@ from core.config import (
 )
 from core.errors import StorageError, ValidationError
 from core.models import ApiKey, AuditLog, Client, Decision, Project, State
+from core.projects import normalize_project_id
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 BASELINE_REVISION = "0001"
@@ -93,11 +94,11 @@ def detect_project_id() -> str:
             ["git", "config", "--get", "remote.origin.url"], text=True, cwd=os.getcwd()
         ).strip()
         if remote_url:
-            return remote_url
+            return normalize_project_id(remote_url)
     except Exception:
         pass
 
-    return os.getcwd()
+    return normalize_project_id(os.getcwd())
 
 
 def get_or_create_project(project_id: str, session: Session) -> Project:
@@ -115,6 +116,7 @@ def get_or_create_project(project_id: str, session: Session) -> Project:
                 git_remote = subprocess.check_output(
                     ["git", "config", "--get", "remote.origin.url"], text=True
                 ).strip()
+                git_remote = normalize_project_id(git_remote) if git_remote else None
             except Exception:
                 git_remote = None
             local_path = os.getcwd()

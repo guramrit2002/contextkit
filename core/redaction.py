@@ -2,6 +2,8 @@
 import re
 from typing import Optional
 
+from core.projects import normalize_project_id
+
 
 class SecretRedactor:
     """Redacts sensitive information from text."""
@@ -75,7 +77,7 @@ def validate_project_id(project_id: Optional[str]) -> str:
     if project_id.startswith("."):
         raise ValueError("Project ID cannot start with a dot")
 
-    return project_id
+    return normalize_project_id(project_id)
 
 
 def validate_text(text: Optional[str], field_name: str, max_length: int = 10000) -> Optional[str]:
