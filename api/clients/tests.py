@@ -7,6 +7,7 @@ from unittest import mock
 from django.contrib.admin import site
 from django.contrib.auth.models import Permission, User
 from django.contrib.contenttypes.models import ContentType
+from django.core import checks
 from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -15,11 +16,14 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test import SimpleTestCase, TestCase, TransactionTestCase
 from django.urls import reverse
 
+from accounts import github
 from api import settings as project_settings
+from clients.checks import shared_projects
 from clients.models import ApiKey, Client
 from clients.services import (
     DUPLICATE_PROJECT_MESSAGE,
     KEY_PREFIX,
+    OTHER_OWNER_MESSAGE,
     create_client,
     hash_api_key,
     issue_api_key,
@@ -63,11 +67,18 @@ class CreateClientTests(TestCase):
         self.assertEqual(Client.objects.count(), 1)
         self.assertEqual(ApiKey.objects.count(), 1)
 
-    def test_same_project_allowed_for_different_users(self):
+    def test_a_project_belongs_to_one_user_even_for_operators(self):
         create_client(user_id="alice", project_id="proj-1", name="a")
-        create_client(user_id="bob", project_id="proj-1", name="b")
 
-        self.assertEqual(Client.objects.count(), 2)
+        with self.assertRaisesMessage(ValidationError, OTHER_OWNER_MESSAGE):
+            create_client(user_id="bob", project_id="proj-1", name="b")
+        self.assertEqual(Client.objects.count(), 1)
+
+    def test_operator_path_skips_the_github_check(self):
+        with mock.patch.object(github, "fetch_public_repo") as lookup:
+            create_client(user_id="u1", project_id="https://github.com/someone/else", name="a")
+
+        lookup.assert_not_called()
 
     def test_rejects_blank_fields(self):
         for kwargs in (
@@ -294,6 +305,17 @@ class ClientAdminTests(TestCase):
         self.assertEqual(Client.objects.count(), 1)
         self.assertTrue(response.context["adminform"].form.errors)
 
+    def test_admin_shows_the_one_owner_error(self):
+        create_client(user_id="alice", project_id="https://github.com/acme/app", name="bot")
+
+        response = self.client.post(reverse("admin:clients_client_add"), {
+            "name": "other", "user_id": "bob", "project_id": "git@github.com:acme/app.git",
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, OTHER_OWNER_MESSAGE)
+        self.assertEqual(Client.objects.count(), 1)
+
     def test_editing_a_client_keeps_its_key(self):
         client, api_key = create_client(user_id="alice", project_id="proj-1", name="bot")
 
@@ -400,3 +422,34 @@ class NormalizeProjectIdsMigrationTests(TransactionTestCase):
 
         self.assertEqual(Client.objects.count(), 2)
         Client.objects.filter(id="c2").delete()  # the operator revokes one, then reruns
+
+
+class SharedProjectsCheckTests(TestCase):
+    """clients.W002 reports projects held by more than one user and changes nothing."""
+
+    def test_lists_a_shared_project_and_changes_nothing(self):
+        # Created directly: the services no longer allow this, but old data may contain it.
+        Client.objects.create(user_id="1", project_id="https://github.com/acme/app", name="a")
+        Client.objects.create(user_id="2", project_id="https://github.com/acme/app", name="b")
+        Client.objects.create(user_id="1", project_id="https://github.com/acme/solo", name="c")
+
+        [warning] = shared_projects(None, databases=["default"])
+
+        self.assertEqual(warning.id, "clients.W002")
+        self.assertIn("https://github.com/acme/app", warning.msg)
+        self.assertNotIn("acme/solo", warning.msg)
+        self.assertIn("revoke the clients that don't belong", warning.hint)
+        self.assertEqual(Client.objects.count(), 3)
+
+    def test_silent_without_shared_projects_or_outside_database_checks(self):
+        Client.objects.create(user_id="1", project_id="https://github.com/acme/app", name="a")
+
+        self.assertEqual(shared_projects(None, databases=["default"]), [])
+        self.assertEqual(shared_projects(None, databases=None), [])
+
+    def test_registered_for_database_checks(self):
+        Client.objects.create(user_id="1", project_id="p", name="a")
+        Client.objects.create(user_id="2", project_id="p", name="b")
+
+        ids = [m.id for m in checks.run_checks(tags=[checks.Tags.database], databases=["default"])]
+        self.assertIn("clients.W002", ids)

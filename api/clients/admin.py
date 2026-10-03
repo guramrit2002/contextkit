@@ -1,10 +1,11 @@
 """Django admin configuration for clients app."""
 from django import forms
 from django.contrib import admin
+from django.core.exceptions import ValidationError
 from django.template.response import TemplateResponse
 
 from .models import ApiKey, Client
-from .services import canonical_project_id, issue_api_key
+from .services import canonical_project_id, ensure_single_owner, issue_api_key
 
 ISSUED_KEYS_TEMPLATE = "admin/clients/issued_keys.html"
 
@@ -29,6 +30,18 @@ class ClientAdminForm(forms.ModelForm):
     def clean_project_id(self):
         # Canonical before the unique (user, project) check, as for API-created clients.
         return canonical_project_id(self.cleaned_data["project_id"])
+
+    def clean(self):
+        cleaned = super().clean()
+        user_id, project_id = cleaned.get("user_id"), cleaned.get("project_id")
+        if user_id and project_id:
+            # The admin saves the model directly, not through create_client: enforce the
+            # one-owner rule here too (ADR 031). Operators skip only the GitHub check.
+            try:
+                ensure_single_owner(user_id.strip(), project_id)
+            except ValidationError as exc:
+                self.add_error(None, exc.message_dict["project_id"])
+        return cleaned
 
 
 @admin.register(Client)
