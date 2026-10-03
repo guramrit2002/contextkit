@@ -99,7 +99,6 @@ Context is stored in the hosted Postgres database, not on your machine.
 ## What's next
 
 - Session compaction: fold old sessions into decisions and state automatically.
-- A token budget for briefings on long-running projects.
 - Organisation and private repositories, through a GitHub App.
 - Sharing a project with a team.
 - Rate limiting per key.
