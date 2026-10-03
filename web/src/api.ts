@@ -23,10 +23,13 @@ export interface GitHubRepo {
 
 export class ApiError extends Error {
   readonly status: number | null
+  /** The first error per request field from a 400 (e.g. project_id, name), for inline display. */
+  readonly fields: Record<string, string>
 
-  constructor(message: string, status: number | null = null) {
+  constructor(message: string, status: number | null = null, fields: Record<string, string> = {}) {
     super(message)
     this.status = status
+    this.fields = fields
   }
 
   /** The JWT was rejected: the user has to sign in again. */
@@ -52,6 +55,16 @@ function firstMessage(body: unknown): string | null {
     }
   }
   return null
+}
+
+function fieldMessages(body: unknown): Record<string, string> {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return {}
+  const fields: Record<string, string> = {}
+  for (const [field, value] of Object.entries(body as Record<string, unknown>)) {
+    const message = field === 'detail' ? null : firstMessage(value)
+    if (message) fields[field] = message
+  }
+  return fields
 }
 
 async function request<T>(
@@ -85,6 +98,7 @@ async function request<T>(
   throw new ApiError(
     firstMessage(data) ?? `Request failed (${response.status}).`,
     response.status,
+    fieldMessages(data),
   )
 }
 

@@ -30,6 +30,32 @@ interface Props {
   oauthReturn: OAuthReturn
 }
 
+type FieldErrors = Partial<Record<'project_id' | 'name', string>>
+
+/** github.com/you/app: the project ID without its scheme, for headings. */
+function projectLabel(projectId: string): string {
+  return projectId.replace(/^https?:\/\//, '')
+}
+
+/** Keys grouped by project, projects ordered by their most recent key. */
+function groupByProject(keys: ClientKey[]): [string, ClientKey[]][] {
+  const newestFirst = [...keys].sort((a, b) => b.created_at.localeCompare(a.created_at))
+  const groups = new Map<string, ClientKey[]>()
+  for (const key of newestFirst) groups.set(key.project_id, [...(groups.get(key.project_id) ?? []), key])
+  return [...groups.entries()]
+}
+
+/** The agent's name, or "<agent> 2", "<agent> 3"… if the project already has a key by that name. */
+function suggestName(agent: string, keys: ClientKey[], projectId: string | null): string {
+  const taken = new Set(
+    keys.filter((key) => key.project_id === projectId).map((key) => key.name.trim().toLowerCase()),
+  )
+  if (!taken.has(agent.toLowerCase())) return agent
+  let n = 2
+  while (taken.has(`${agent} ${n}`.toLowerCase())) n += 1
+  return `${agent} ${n}`
+}
+
 interface PendingAction {
   id: string
   kind: 'rotate' | 'revoke'
@@ -92,6 +118,9 @@ export default function ApiKeyModal({ open, onClose, setup, agentIndex, oauthRet
   const [reposError, setReposError] = useState<string | null>(null)
   const [typeUrl, setTypeUrl] = useState(false)
   const [pickedRepo, setPickedRepo] = useState('')
+  // Add agent: the create form for an existing project, shown as text instead of the picker.
+  const [fixedProject, setFixedProject] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const reposRequested = useRef(false)
 
   useEffect(() => {
@@ -160,7 +189,18 @@ export default function ApiKeyModal({ open, onClose, setup, agentIndex, oauthRet
     setReposError(null)
     setTypeUrl(false)
     setPickedRepo('')
+    setFixedProject(null)
+    setFieldErrors({})
     reposRequested.current = false
+  }
+
+  function openCreate(projectId: string | null) {
+    setError(null)
+    setFieldErrors({})
+    setPending(null)
+    setPickedRepo('')
+    setFixedProject(projectId)
+    setStep('create')
   }
 
   function handleClose() {
@@ -192,13 +232,25 @@ export default function ApiKeyModal({ open, onClose, setup, agentIndex, oauthRet
     if (!token) return
     const form = new FormData(event.currentTarget)
     const repository = String(form.get('repository') ?? '').trim()
+    setFieldErrors({})
     if (!repository) {
-      setError('Choose a repository, or use a different URL.')
+      setFieldErrors({ project_id: 'Choose a repository, or use a different URL.' })
       return
     }
     void run(async () => {
-      setIssued(await createKey(token, repository, String(form.get('name'))))
+      try {
+        setIssued(await createKey(token, repository, String(form.get('name'))))
+      } catch (caught) {
+        // Show the server's answer under the field it's about (ADR 031: ownership, names).
+        const fields = caught instanceof ApiError ? caught.fields : {}
+        if (fields.project_id || fields.name) {
+          setFieldErrors({ project_id: fields.project_id, name: fields.name })
+          return
+        }
+        throw caught
+      }
       setPickedRepo('')
+      setFixedProject(null)
       setStep('issued')
     })
   }
@@ -258,83 +310,103 @@ export default function ApiKeyModal({ open, onClose, setup, agentIndex, oauthRet
 
       {step === 'keys' && (
         <div className="form">
-          <ul className="key-list">
-            {keys.map((key) => (
-              <li key={key.id} className="key-item">
-                <div className="key-meta">
-                  <strong>{key.name}</strong>
-                  <span className="key-project">{key.project_id}</span>
-                  <span className="key-date">Created {formatDate(key.created_at)}</span>
+          <div className="project-list">
+            {groupByProject(keys).map(([projectId, projectKeys]) => (
+              <section key={projectId} className="project-group" aria-label={projectLabel(projectId)}>
+                <div className="project-head">
+                  <h3 className="project-name">{projectLabel(projectId)}</h3>
+                  <button
+                    type="button"
+                    className="button small"
+                    onClick={() => openCreate(projectId)}
+                    disabled={busy}
+                  >
+                    Add agent
+                  </button>
                 </div>
-                {pending?.id === key.id ? (
-                  <div className="key-confirm">
-                    <p>
-                      {pending.kind === 'rotate'
-                        ? 'Agents using the old key will stop working.'
-                        : 'This key stops working immediately.'}
-                    </p>
-                    <div className="key-actions">
-                      <button
-                        type="button"
-                        className="button small danger"
-                        onClick={confirmPending}
-                        disabled={busy}
-                      >
-                        {pending.kind === 'rotate' ? 'Rotate key' : 'Revoke key'}
-                      </button>
-                      <button
-                        type="button"
-                        className="button small"
-                        onClick={() => setPending(null)}
-                        disabled={busy}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="key-actions">
-                    <button
-                      type="button"
-                      className="button small"
-                      onClick={() => setPending({ id: key.id, kind: 'rotate' })}
-                      disabled={busy}
-                    >
-                      Rotate
-                    </button>
-                    <button
-                      type="button"
-                      className="button small"
-                      onClick={() => setPending({ id: key.id, kind: 'revoke' })}
-                      disabled={busy}
-                    >
-                      Revoke
-                    </button>
-                  </div>
-                )}
-              </li>
+                <ul className="key-list">
+                  {projectKeys.map((key) => (
+                    <li key={key.id} className="key-item">
+                      <div className="key-meta">
+                        <strong>{key.name}</strong>
+                        <span className="key-date">Created {formatDate(key.created_at)}</span>
+                      </div>
+                      {pending?.id === key.id ? (
+                        <div className="key-confirm">
+                          <p>
+                            {pending.kind === 'rotate'
+                              ? 'Agents using the old key will stop working.'
+                              : 'This key stops working immediately.'}
+                          </p>
+                          <div className="key-actions">
+                            <button
+                              type="button"
+                              className="button small danger"
+                              onClick={confirmPending}
+                              disabled={busy}
+                            >
+                              {pending.kind === 'rotate' ? 'Rotate key' : 'Revoke key'}
+                            </button>
+                            <button
+                              type="button"
+                              className="button small"
+                              onClick={() => setPending(null)}
+                              disabled={busy}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="key-actions">
+                          <button
+                            type="button"
+                            className="button small"
+                            onClick={() => setPending({ id: key.id, kind: 'rotate' })}
+                            disabled={busy}
+                          >
+                            Rotate
+                          </button>
+                          <button
+                            type="button"
+                            className="button small"
+                            onClick={() => setPending({ id: key.id, kind: 'revoke' })}
+                            disabled={busy}
+                          >
+                            Revoke
+                          </button>
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
             ))}
-          </ul>
+          </div>
           {error && <p className="form-error" role="alert">{error}</p>}
           <button
             type="button"
             className="button primary"
-            onClick={() => {
-              setError(null)
-              setPending(null)
-              setStep('create')
-            }}
+            onClick={() => openCreate(null)}
             disabled={busy}
           >
-            New key
+            New project
           </button>
         </div>
       )}
 
       {step === 'create' && (
         <form className="form" onSubmit={submitCreate}>
-          <p className="form-intro">A key works for one repository.</p>
-          {showPicker ? (
+          <p className="form-intro">
+            One key per agent. Add one for each tool you use on this project.
+          </p>
+          {fixedProject ? (
+            <div className="field">
+              <span className="field-label">Project</span>
+              <span className="fixed-project">{projectLabel(fixedProject)}</span>
+              <input type="hidden" name="repository" value={fixedProject} />
+            </div>
+          ) : showPicker ? (
             <div className="field">
               <span className="field-label" id="repository-label">
                 Repository
@@ -363,24 +435,44 @@ export default function ApiKeyModal({ open, onClose, setup, agentIndex, oauthRet
               />
             </label>
           )}
-          <p className="field-hint">
-            {showPicker
-              ? 'Only your public repositories are listed. '
-              : reposError
-                ? `${reposError} Enter the URL instead. `
-                : repos?.length === 0
-                  ? 'No public repositories found. Enter the URL instead. '
-                  : 'Any form works: https, SSH, with or without .git. '}
-            {!reposError && (repos === null || repos.length > 0) && (
-              <button type="button" className="link-button" onClick={() => setTypeUrl(!typeUrl)}>
-                {typeUrl ? 'Choose from your repositories' : 'Use a different URL'}
-              </button>
-            )}
-          </p>
+          {fieldErrors.project_id && (
+            <p className="field-error" role="alert">
+              {fieldErrors.project_id}
+            </p>
+          )}
+          {!fixedProject && (
+            <p className="field-hint">
+              {showPicker
+                ? 'Only your public repositories are listed. '
+                : reposError
+                  ? `${reposError} Enter the URL instead. `
+                  : repos?.length === 0
+                    ? 'No public repositories found. Enter the URL instead. '
+                    : 'Any form works: https, SSH, with or without .git. '}
+              {!reposError && (repos === null || repos.length > 0) && (
+                <button type="button" className="link-button" onClick={() => setTypeUrl(!typeUrl)}>
+                  {typeUrl ? 'Choose from your repositories' : 'Use a different URL'}
+                </button>
+              )}
+            </p>
+          )}
           <label>
             Key name
-            <input name="name" defaultValue={setup.agent} maxLength={255} required />
+            <input
+              // Remount per project so the suggested name follows the project.
+              key={fixedProject ?? 'new-project'}
+              name="name"
+              defaultValue={suggestName(setup.agent, keys, fixedProject)}
+              maxLength={255}
+              required
+              aria-invalid={Boolean(fieldErrors.name)}
+            />
           </label>
+          {fieldErrors.name && (
+            <p className="field-error" role="alert">
+              {fieldErrors.name}
+            </p>
+          )}
           {error && <p className="form-error" role="alert">{error}</p>}
           <button type="submit" className="button primary" disabled={busy}>
             {busy ? 'Creating…' : 'Create key'}
@@ -391,6 +483,8 @@ export default function ApiKeyModal({ open, onClose, setup, agentIndex, oauthRet
               className="button"
               onClick={() => {
                 setError(null)
+                setFieldErrors({})
+                setFixedProject(null)
                 setStep('keys')
               }}
               disabled={busy}

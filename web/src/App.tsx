@@ -11,7 +11,7 @@ const GUIDES_URL = `${REPO_URL}/blob/HEAD/docs/guide`
 
 const FEATURES = [
   'API-key auth on every call',
-  'One project per key',
+  'One key per agent',
   'Secrets redacted before storage',
   'Every call audited',
 ]

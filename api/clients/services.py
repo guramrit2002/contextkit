@@ -13,7 +13,9 @@ from clients.models import ApiKey, Client
 from core.projects import normalize_project_id
 
 KEY_PREFIX = "ck_"
-DUPLICATE_PROJECT_MESSAGE = "You already have a key for this repository. Rotate it instead."
+DUPLICATE_NAME_MESSAGE = (
+    "This project already has a key named {name}. Rotate it, or choose another name."
+)
 OTHER_OWNER_MESSAGE = "This repository is registered to another account."
 NOT_YOUR_REPO_MESSAGE = "You can only create keys for public repositories you own on GitHub."
 GITHUB_UNAVAILABLE_MESSAGE = "Could not check the repository on GitHub. Try again."
@@ -87,12 +89,15 @@ def create_client(*, user_id: str, project_id: str, name: str) -> tuple[Client, 
     Also the trusted operator path (admin, manage.py create_client): it skips the GitHub check
     but keeps the one-owner rule.
     """
-    user_id, project_id = user_id.strip(), canonical_project_id(project_id)
+    user_id, project_id, name = user_id.strip(), canonical_project_id(project_id), name.strip()
     ensure_single_owner(user_id, project_id)
-    if Client.objects.filter(user_id=user_id, project_id=project_id).exists():
-        # Any URL form of a repository is the same project, and each has one key (ADR 022).
-        raise ValidationError({"project_id": [DUPLICATE_PROJECT_MESSAGE]})
-    client = Client(user_id=user_id, project_id=project_id, name=name.strip())
+    # A project has one client per agent, told apart by name, ignoring case (ADR 031). Any URL
+    # form of a repository is the same project.
+    if Client.objects.filter(
+        user_id=user_id, project_id=project_id, name__iexact=name
+    ).exists():
+        raise ValidationError({"name": [DUPLICATE_NAME_MESSAGE.format(name=name)]})
+    client = Client(user_id=user_id, project_id=project_id, name=name)
     client.full_clean()
     client.save()
     return client, issue_api_key(client)

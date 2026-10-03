@@ -340,3 +340,27 @@ class CoreDatabaseUnreachableTests(SimpleTestCase):
         self.assertEqual((issue.level, issue.id), (checks.ERROR, "context.E002"))
         self.assertNotIn("secret", issue.msg + issue.hint)
         self.assertNotIn("db.invalid", issue.msg + issue.hint)
+
+
+class PerAgentAttributionTests(ContextApiTestCase):
+    """Two agents on one project: each write is attributed to its own client (ADR 031)."""
+
+    def test_decisions_and_audit_record_each_agents_client(self):
+        codex, codex_key = create_client(user_id="alice", project_id="proj-1", name="Codex")
+        for key in (self.key, codex_key):
+            agent = APIClient()
+            agent.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+            response = agent.post(
+                f"{BASE}/decisions/", {"decision": f"by {key[-4:]}", "reasoning": "r"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, 201, response.content)
+
+        self.assertEqual(
+            sorted(self.query("SELECT client_id FROM decisions")),
+            sorted([(self.client_record.id,), (codex.id,)]),
+        )
+        self.assertEqual(
+            sorted(row[2] for row in self.audit() if row[0] == "log_decision"),
+            sorted([self.client_record.id, codex.id]),
+        )

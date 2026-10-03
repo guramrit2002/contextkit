@@ -2,6 +2,7 @@
 import uuid
 
 from django.db import models
+from django.db.models.functions import Lower
 
 
 def new_id() -> str:
@@ -10,13 +11,16 @@ def new_id() -> str:
 
 
 class Client(models.Model):
-    """Anything that holds an API key and calls contextkit over MCP or REST (ADR 025)."""
+    """
+    Anything that holds an API key and calls contextkit over MCP or REST (ADR 025): usually one
+    agent working on one project. A project can have many clients, told apart by name (ADR 031).
+    """
 
     id = models.CharField(primary_key=True, max_length=36, default=new_id, editable=False)
     user_id = models.CharField(max_length=255)
     project_id = models.CharField(
         max_length=500,
-        help_text="The one project this client may access: git remote URL or folder path.",
+        help_text="The project this client works on (canonical repository URL).",
     )
     name = models.CharField(max_length=255)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -25,8 +29,9 @@ class Client(models.Model):
     class Meta:
         db_table = "clients"
         constraints = [
+            # One project, many agents; names are unique per project, ignoring case (ADR 031).
             models.UniqueConstraint(
-                fields=["user_id", "project_id"], name="uniq_client_user_project"
+                Lower("name"), "user_id", "project_id", name="uniq_client_user_project_name"
             ),
         ]
 
