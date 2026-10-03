@@ -1023,3 +1023,35 @@ button.button.primary {
 .form input[aria-invalid='true'] {
   border-color: #dc2626;
 }
+
+/* Client picker (ADR 031): agents plus "Add a new name…" */
+
+.picker-option.single {
+  grid-template-areas: 'name check';
+}
+
+.picker-option.new-name {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 8px 8px;
+  color: var(--accent);
+}
+
+.picker-list:focus {
+  outline: none;
+}
+
+.field input[name='client'] {
+  margin-top: 6px;
+}
+
+.key-name-preview {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+/* A handful of agents: show them all, so "Add a new name…" is never scrolled out of view. */
+.picker-list.short {
+  max-height: none;
+}

@@ -132,9 +132,10 @@ export async function listGitHubRepos(token: string): Promise<GitHubRepo[]> {
   return body.repositories
 }
 
-export function createKey(token: string, projectUrl: string, name: string): Promise<IssuedKey> {
+/** `client` is the agent (e.g. Claude Code); the server names the key <project>-<client>-<key-id>. */
+export function createKey(token: string, projectUrl: string, client: string): Promise<IssuedKey> {
   return request<IssuedKey>('POST', '/api/v1/clients/', {
-    body: { project_id: projectUrl, name },
+    body: { project_id: projectUrl, client },
     token,
   })
 }

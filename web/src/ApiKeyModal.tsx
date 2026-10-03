@@ -12,8 +12,9 @@ import {
   type IssuedKey,
 } from './api'
 import { beginGitHubSignIn, redirectUri, type OAuthReturn } from './oauth'
+import ClientPicker, { NEW_NAME } from './ClientPicker'
 import RepoPicker from './RepoPicker'
-import { setupWithKey, type AgentSetup } from './setups'
+import { SETUPS, setupWithKey, type AgentSetup } from './setups'
 
 type Step = 'signin' | 'signing-in' | 'keys' | 'create' | 'issued'
 
@@ -30,7 +31,9 @@ interface Props {
   oauthReturn: OAuthReturn
 }
 
-type FieldErrors = Partial<Record<'project_id' | 'name', string>>
+type FieldErrors = Partial<Record<'project_id' | 'client', string>>
+
+const AGENTS = [...new Set(SETUPS.map((option) => option.agent))]
 
 /** github.com/you/app: the project ID without its scheme, for headings. */
 function projectLabel(projectId: string): string {
@@ -45,15 +48,14 @@ function groupByProject(keys: ClientKey[]): [string, ClientKey[]][] {
   return [...groups.entries()]
 }
 
-/** The agent's name, or "<agent> 2", "<agent> 3"… if the project already has a key by that name. */
-function suggestName(agent: string, keys: ClientKey[], projectId: string | null): string {
-  const taken = new Set(
-    keys.filter((key) => key.project_id === projectId).map((key) => key.name.trim().toLowerCase()),
-  )
-  if (!taken.has(agent.toLowerCase())) return agent
-  let n = 2
-  while (taken.has(`${agent} ${n}`.toLowerCase())) n += 1
-  return `${agent} ${n}`
+function slug(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100)
+}
+
+/** The key name the server will build: <project>-<client>-<key-id> (the ID comes on creation). */
+function keyNamePreview(projectId: string, client: string): string {
+  const project = projectId ? slug(projectId.replace(/\/+$/, '').split('/').pop() ?? '') : ''
+  return `${project || '<project>'}-${slug(client) || '<client>'}-<key-id>`
 }
 
 interface PendingAction {
@@ -121,6 +123,9 @@ export default function ApiKeyModal({ open, onClose, setup, agentIndex, oauthRet
   // Add agent: the create form for an existing project, shown as text instead of the picker.
   const [fixedProject, setFixedProject] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
+  // Which agent the new key is for: one of AGENTS, or NEW_NAME with a typed name.
+  const [clientChoice, setClientChoice] = useState(setup.agent)
+  const [customClient, setCustomClient] = useState('')
   const reposRequested = useRef(false)
 
   useEffect(() => {
@@ -200,6 +205,8 @@ export default function ApiKeyModal({ open, onClose, setup, agentIndex, oauthRet
     setPending(null)
     setPickedRepo('')
     setFixedProject(projectId)
+    setClientChoice(setup.agent)
+    setCustomClient('')
     setStep('create')
   }
 
@@ -239,12 +246,12 @@ export default function ApiKeyModal({ open, onClose, setup, agentIndex, oauthRet
     }
     void run(async () => {
       try {
-        setIssued(await createKey(token, repository, String(form.get('name'))))
+        setIssued(await createKey(token, repository, String(form.get('client') ?? '')))
       } catch (caught) {
         // Show the server's answer under the field it's about (ADR 031: ownership, names).
         const fields = caught instanceof ApiError ? caught.fields : {}
-        if (fields.project_id || fields.name) {
-          setFieldErrors({ project_id: fields.project_id, name: fields.name })
+        if (fields.project_id || fields.client || fields.name) {
+          setFieldErrors({ project_id: fields.project_id, client: fields.client ?? fields.name })
           return
         }
         throw caught
@@ -456,23 +463,49 @@ export default function ApiKeyModal({ open, onClose, setup, agentIndex, oauthRet
               )}
             </p>
           )}
-          <label>
-            Key name
-            <input
-              // Remount per project so the suggested name follows the project.
-              key={fixedProject ?? 'new-project'}
-              name="name"
-              defaultValue={suggestName(setup.agent, keys, fixedProject)}
-              maxLength={255}
-              required
-              aria-invalid={Boolean(fieldErrors.name)}
+          <div className="field">
+            <span className="field-label" id="client-label">
+              Client
+            </span>
+            <ClientPicker
+              options={AGENTS}
+              value={clientChoice}
+              onChange={(value) => {
+                setClientChoice(value)
+                setFieldErrors((current) => ({ ...current, client: undefined }))
+              }}
+              labelId="client-label"
             />
-          </label>
-          {fieldErrors.name && (
+            {clientChoice === NEW_NAME ? (
+              <input
+                name="client"
+                aria-label="New client name"
+                placeholder="e.g. CI pipeline"
+                value={customClient}
+                onChange={(event) => setCustomClient(event.target.value)}
+                maxLength={100}
+                required
+                autoFocus
+                aria-invalid={Boolean(fieldErrors.client)}
+              />
+            ) : (
+              <input type="hidden" name="client" value={clientChoice} />
+            )}
+          </div>
+          {fieldErrors.client && (
             <p className="field-error" role="alert">
-              {fieldErrors.name}
+              {fieldErrors.client}
             </p>
           )}
+          <p className="field-hint">
+            Key name:{' '}
+            <code className="key-name-preview">
+              {keyNamePreview(
+                fixedProject ?? pickedRepo,
+                clientChoice === NEW_NAME ? customClient : clientChoice,
+              )}
+            </code>
+          </p>
           {error && <p className="form-error" role="alert">{error}</p>}
           <button type="submit" className="button primary" disabled={busy}>
             {busy ? 'Creating…' : 'Create key'}

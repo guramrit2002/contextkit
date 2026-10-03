@@ -1,5 +1,6 @@
 """Issuing clients and API keys. Only the SHA-256 hash of a key is ever stored."""
 import hashlib
+import re
 import secrets
 from urllib.parse import urlsplit
 
@@ -9,7 +10,7 @@ from django.db import transaction
 
 from accounts import github
 from accounts.models import GitHubIdentity
-from clients.models import ApiKey, Client
+from clients.models import ApiKey, Client, new_id
 from core.projects import normalize_project_id
 
 KEY_PREFIX = "ck_"
@@ -82,7 +83,22 @@ def ensure_owns_on_github(user, project_id: str) -> None:
 
 
 @transaction.atomic
-def create_client(*, user_id: str, project_id: str, name: str) -> tuple[Client, str]:
+def _slug(text: str, limit: int) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:limit].strip("-")
+
+
+def key_name(project_id: str, client: str, client_id: str) -> str:
+    """
+    `<project>-<client>-<key-id>`, e.g. contextkit-claude-code-3f9a1c2b: the repository's name,
+    the client in lowercase with hyphens, and the first 8 characters of the client's ID.
+    """
+    project = _slug(project_id.rstrip("/").rsplit("/", 1)[-1], 100) or "project"
+    return f"{project}-{_slug(client, 100) or 'client'}-{client_id[:8]}"
+
+
+def create_client(
+    *, user_id: str, project_id: str, name: str, client_id: str | None = None
+) -> tuple[Client, str]:
     """
     Create a client assigned to one project and issue its API key.
 
@@ -98,6 +114,8 @@ def create_client(*, user_id: str, project_id: str, name: str) -> tuple[Client, 
     ).exists():
         raise ValidationError({"name": [DUPLICATE_NAME_MESSAGE.format(name=name)]})
     client = Client(user_id=user_id, project_id=project_id, name=name)
+    if client_id:
+        client.id = client_id
     client.full_clean()
     client.save()
     return client, issue_api_key(client)
@@ -121,13 +139,24 @@ def get_client(user, client_id: str) -> Client:
     return Client.objects.select_related("api_key").get(id=client_id, user_id=owner_id(user))
 
 
-def create_client_for_user(user, *, project_id: str, name: str) -> tuple[Client, str]:
-    """The user API and website: only the project's owner, proven on GitHub (ADR 031)."""
+def create_client_for_user(user, *, project_id: str, client: str) -> tuple[Client, str]:
+    """
+    The user API and website: only the project's owner, proven on GitHub (ADR 031).
+
+    `client` is the agent or integration (e.g. "Claude Code"); the key's name is built from it
+    as `<project>-<client>-<key-id>`, so the same agent can hold several keys on one project.
+    """
     user_id, project_id = owner_id(user), canonical_project_id(project_id)
     ensure_single_owner(user_id, project_id)
     # Outside the database transaction: a slow GitHub must not hold one open.
     ensure_owns_on_github(user, project_id)
-    return create_client(user_id=user_id, project_id=project_id, name=name)
+    client_id = new_id()
+    return create_client(
+        user_id=user_id,
+        project_id=project_id,
+        name=key_name(project_id, client, client_id),
+        client_id=client_id,
+    )
 
 
 def rotate_client_key(user, client_id: str) -> tuple[Client, str]:
