@@ -26,7 +26,7 @@ class RevokeOnDeleteTests(TestCase):
     def test_deleting_a_user_deletes_their_clients_and_keys(self):
         owned_by(self.alice, "https://github.com/a/one")
         owned_by(self.alice, "https://github.com/a/two")
-        bobs, _ = owned_by(self.bob)
+        bobs, _ = owned_by(self.bob, "https://github.com/b/r")
 
         self.alice.delete()
 
@@ -34,8 +34,8 @@ class RevokeOnDeleteTests(TestCase):
         self.assertEqual(ApiKey.objects.count(), 1)
 
     def test_bulk_delete_also_revokes(self):
-        owned_by(self.alice)
-        owned_by(self.bob)
+        owned_by(self.alice, "https://github.com/a/r")
+        owned_by(self.bob, "https://github.com/b/r")
 
         User.objects.filter(username__in=["alice", "bob"]).delete()
 

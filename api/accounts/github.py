@@ -11,6 +11,7 @@ from typing import NamedTuple, Optional
 TOKEN_URL = "https://github.com/login/oauth/access_token"
 USER_URL = "https://api.github.com/user"
 REPOS_URL = "https://api.github.com/users/{login}/repos"
+REPO_URL = "https://api.github.com/repos/{owner}/{repo}"
 TIMEOUT_SECONDS = 10
 REPOS_PER_PAGE = 100
 MAX_REPO_PAGES = 3  # at most 300 repositories, most recently pushed first
@@ -30,6 +31,14 @@ class GitHubRepo(NamedTuple):
     html_url: str
     pushed_at: Optional[str]
     fork: bool
+
+
+class GitHubRepoOwner(NamedTuple):
+    """Who owns a repository, as GitHub reports it (ADR 031)."""
+
+    login: str
+    type: str  # "User" or "Organization"
+    private: bool
 
 
 def is_configured() -> bool:
@@ -116,3 +125,34 @@ def list_public_repos(login: str) -> list[GitHubRepo]:
         if len(data) < REPOS_PER_PAGE:
             break
     return repos
+
+
+def fetch_public_repo(full_name: str) -> Optional[GitHubRepoOwner]:
+    """
+    Look up `owner/repo` with the app's own credentials (no user token, no scope).
+
+    Returns None when GitHub says it doesn't exist; a private repository is also a 404 to app
+    credentials. Raises GitHubAuthError when GitHub can't be reached or answers anything else.
+    """
+    owner, _, repo = full_name.partition("/")
+    url = REPO_URL.format(
+        owner=urllib.parse.quote(owner, safe=""), repo=urllib.parse.quote(repo, safe="")
+    )
+    try:
+        data = _request(urllib.request.Request(url, headers={
+            "Authorization": _app_credentials(),
+            "Accept": "application/vnd.github+json",
+        }))
+    except GitHubAuthError as exc:
+        cause = exc.__cause__
+        if isinstance(cause, urllib.error.HTTPError) and cause.code == 404:
+            return None
+        raise GitHubAuthError("Could not check the repository on GitHub.") from exc
+    owner_data = data.get("owner") if isinstance(data, dict) else None
+    if not isinstance(owner_data, dict) or "login" not in owner_data:
+        raise GitHubAuthError("GitHub did not return the repository's owner.")
+    return GitHubRepoOwner(
+        login=str(owner_data["login"]),
+        type=str(owner_data.get("type", "")),
+        private=bool(data.get("private", True)),
+    )

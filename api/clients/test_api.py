@@ -1,11 +1,22 @@
 """User API (ADR 028): JWT login and API-key management."""
+from unittest import mock
+
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient as HttpClient
 
+from accounts import github
 from clients.models import ApiKey, Client
-from clients.services import KEY_PREFIX, create_client, hash_api_key
+from clients.services import (
+    GITHUB_UNAVAILABLE_MESSAGE,
+    KEY_PREFIX,
+    NOT_YOUR_REPO_MESSAGE,
+    OTHER_OWNER_MESSAGE,
+    create_client,
+    hash_api_key,
+)
+from clients.testing import link_github, stub_github
 
 TOKEN = "/api/v1/auth/token/"
 REFRESH = "/api/v1/auth/token/refresh/"
@@ -22,6 +33,10 @@ class UserApiTestCase(TestCase):
         self.alice = User.objects.create_user("alice", password="alice-pass-123")
         self.bob = User.objects.create_user("bob", password="bob-pass-123")
         self.http = HttpClient()
+        # Alice owns github.com/acme/*, Bob owns github.com/bob/* (see clients.testing).
+        link_github(self.alice, "acme", 1)
+        link_github(self.bob, "bob", 2)
+        self.github = stub_github(self)
 
     def login(self, username="alice", password="alice-pass-123"):
         credentials = {"username": username, "password": password}
@@ -159,12 +174,15 @@ class CreateTests(UserApiTestCase):
         )
         self.assertEqual(Client.objects.count(), 1)
 
-    def test_other_users_can_use_the_same_project(self):
+    def test_another_user_cannot_register_the_same_project(self):
         self.login()
         self.create()
         self.login("bob", "bob-pass-123")
 
-        self.assertEqual(self.create().status_code, 201)
+        response = self.create()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"project_id": [OTHER_OWNER_MESSAGE]})
 
     def test_invalid_input_is_400(self):
         self.login()
@@ -257,3 +275,95 @@ class CorsTests(UserApiTestCase):
             with self.subTest(path=path):
                 response = self.preflight(path, self.ORIGIN)
                 self.assertNotIn("Access-Control-Allow-Origin", response)
+
+
+class ProjectOwnershipTests(UserApiTestCase):
+    """Only a project's owner may create keys for it (ADR 031, spec A.5)."""
+
+    def setUp(self):
+        super().setUp()
+        self.login()  # alice, GitHub login "acme"
+
+    def assert_refused(self, response, message):
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json(), {"project_id": [message]})
+
+    def answer(self, repo=None, error=None):
+        self.github.side_effect = error
+        self.github.return_value = repo
+
+    def test_owner_creates_a_key_for_their_public_repo(self):
+        response = self.create("https://github.com/acme/app")
+
+        self.assertEqual(response.status_code, 201)
+        self.github.assert_called_once_with("acme/app")
+
+    def test_repo_owned_by_another_login_is_refused(self):
+        self.assert_refused(self.create("https://github.com/someone/app"), NOT_YOUR_REPO_MESSAGE)
+
+    def test_organisation_repo_is_refused(self):
+        self.answer(github.GitHubRepoOwner("acme-org", "Organization", False))
+
+        self.assert_refused(self.create("https://github.com/acme-org/app"), NOT_YOUR_REPO_MESSAGE)
+
+    def test_private_or_missing_repo_is_refused(self):
+        for repo in (github.GitHubRepoOwner("acme", "User", True), None):
+            with self.subTest(repo=repo):
+                self.answer(repo)
+                response = self.create("https://github.com/acme/app")
+                self.assert_refused(response, NOT_YOUR_REPO_MESSAGE)
+
+    def test_github_unreachable_refuses_and_creates_nothing(self):
+        self.answer(error=github.GitHubAuthError("down"))
+
+        self.assert_refused(self.create("https://github.com/acme/app"), GITHUB_UNAVAILABLE_MESSAGE)
+        self.assertFalse(Client.objects.exists())
+
+    def test_github_sign_in_not_configured_refuses_without_skipping(self):
+        with mock.patch.dict("os.environ", {"GITHUB_CLIENT_SECRET": ""}):
+            response = self.create("https://github.com/acme/app")
+
+        self.assert_refused(response, NOT_YOUR_REPO_MESSAGE)
+        self.github.assert_not_called()
+
+    def test_user_without_a_github_identity_is_refused(self):
+        User.objects.create_user("carol", password="carol-pass-123")
+        self.login("carol", "carol-pass-123")
+
+        self.assert_refused(self.create("https://github.com/carol/app"), NOT_YOUR_REPO_MESSAGE)
+        self.github.assert_not_called()
+
+    def test_non_github_urls_and_folder_paths_are_refused(self):
+        for project in ("https://gitlab.com/acme/app", "/Users/acme/app",
+                        "https://github.com/acme", "https://github.com/acme/app/tree/main"):
+            with self.subTest(project=project):
+                self.assert_refused(self.create(project), NOT_YOUR_REPO_MESSAGE)
+        self.github.assert_not_called()
+
+    def test_reported_attack_another_account_cannot_take_over_a_project(self):
+        # Alice holds acme/app. Bob asks for it, and even if GitHub were fooled into saying
+        # Bob owns it, the one-owner rule refuses before GitHub is asked.
+        self.assertEqual(self.create("https://github.com/acme/app").status_code, 201)
+        self.login("bob", "bob-pass-123")
+        self.answer(github.GitHubRepoOwner("bob", "User", False))
+        self.github.reset_mock()
+
+        response = self.create("git@github.com:ACME/App.git")
+
+        self.assert_refused(response, OTHER_OWNER_MESSAGE)
+        self.github.assert_not_called()
+        self.assertEqual(Client.objects.filter(project_id="https://github.com/acme/app").count(), 1)
+
+    def test_every_url_form_of_a_repo_gets_the_same_answer(self):
+        forms = ("https://github.com/someone/app", "git@github.com:Someone/App.git",
+                 "github.com/SOMEONE/app/", "https://github.com/someone/app.git")
+        for form in forms:
+            with self.subTest(form=form):
+                self.assert_refused(self.create(form), NOT_YOUR_REPO_MESSAGE)
+        # The owner's repo in any form is accepted once, then recognised as the same project.
+        self.assertEqual(self.create("git@github.com:ACME/Tool.git").status_code, 201)
+        self.assertEqual(self.create("https://github.com/acme/tool/", name="b").status_code, 400)
+        self.assertEqual(
+            list(Client.objects.values_list("project_id", flat=True)),
+            ["https://github.com/acme/tool"],
+        )

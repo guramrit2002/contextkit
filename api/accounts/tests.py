@@ -45,13 +45,15 @@ class GitHubSignInTests(TestCase):
         access = self.sign_in().json()["access"]
 
         self.http.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
-        created = self.http.post(
-            "/api/v1/clients/", {"project_id": "https://github.com/o/r", "name": "n"},
-            format="json",
-        )
+        repo = github.GitHubRepoOwner(login="octocat", type="User", private=False)
+        with mock.patch.object(github, "fetch_public_repo", return_value=repo):
+            created = self.http.post(
+                "/api/v1/clients/", {"project_id": "https://github.com/octocat/r", "name": "n"},
+                format="json",
+            )
 
         self.assertEqual(created.status_code, 201)
-        self.assertEqual(created.json()["project_id"], "https://github.com/o/r")
+        self.assertEqual(created.json()["project_id"], "https://github.com/octocat/r")
 
     def test_returning_user_is_matched_by_github_id_even_after_a_rename(self):
         self.sign_in()
@@ -289,3 +291,59 @@ class GitHubReposEndpointTests(TestCase):
 
         with mock.patch.dict("os.environ", {"GITHUB_CLIENT_SECRET": ""}):
             self.assertEqual(self.http.get(REPOS).status_code, 503)
+
+
+class FetchPublicRepoTests(TestCase):
+    """GET /repos/{owner}/{repo} with app credentials (ADR 031)."""
+
+    def respond(self, payload):
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.return_value = __import__("json").dumps(
+            payload
+        ).encode()
+        return mock.patch("urllib.request.urlopen", return_value=response)
+
+    def http_error(self, code):
+        import urllib.error
+
+        return mock.patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.HTTPError("u", code, "msg", {}, None),
+        )
+
+    @mock.patch.dict("os.environ", CONFIGURED)
+    def test_public_repo_returns_its_owner(self):
+        body = {"private": False, "owner": {"login": "Octocat", "type": "User"}}
+        with self.respond(body) as urlopen:
+            repo = github.fetch_public_repo("octocat/hello")
+
+        self.assertEqual(repo, github.GitHubRepoOwner("Octocat", "User", False))
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "https://api.github.com/repos/octocat/hello")
+        self.assertEqual(request.headers["Authorization"], "Basic aWQ6c2VjcmV0")
+
+    @mock.patch.dict("os.environ", CONFIGURED)
+    def test_organisation_and_private_flags_are_reported(self):
+        body = {"private": True, "owner": {"login": "acme", "type": "Organization"}}
+        with self.respond(body):
+            repo = github.fetch_public_repo("acme/app")
+
+        self.assertEqual((repo.type, repo.private), ("Organization", True))
+
+    @mock.patch.dict("os.environ", CONFIGURED)
+    def test_404_returns_none(self):
+        with self.http_error(404):
+            self.assertIsNone(github.fetch_public_repo("ghost/nothing"))
+
+    @mock.patch.dict("os.environ", CONFIGURED)
+    def test_other_errors_and_network_failures_raise(self):
+        for failure in (self.http_error(500), self.http_error(403),
+                        mock.patch("urllib.request.urlopen", side_effect=TimeoutError())):
+            with self.subTest(failure=failure), failure, \
+                    self.assertRaises(github.GitHubAuthError):
+                github.fetch_public_repo("octocat/hello")
+
+    @mock.patch.dict("os.environ", CONFIGURED)
+    def test_answer_without_an_owner_raises(self):
+        with self.respond({"private": False}), self.assertRaises(github.GitHubAuthError):
+            github.fetch_public_repo("octocat/hello")
