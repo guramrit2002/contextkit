@@ -22,6 +22,7 @@ contextkit is an MCP server that every agent reads from and writes to. One agent
 
 - **Seamless handoffs:** move between Claude Code, Codex, Cursor, Gemini CLI, Windsurf or VS Code mid-task.
 - **Decisions that stick:** every decision is stored with its reasoning and the alternatives that were rejected.
+- **One key per agent:** give Claude Code, Codex and Cursor their own keys, revoke one without touching the others, and see which agent wrote what.
 - **Secure by default:** every call is authenticated, limited to one project, redacted and audited.
 
 ## How it works
@@ -45,7 +46,15 @@ The server tells agents to do this on its own, so there are no rules to add to y
 
 ### 1. Get an API key
 
-Keys look like `ck_...`. Each one works for exactly one project, identified by its git remote URL. Ask your contextkit admin for one.
+On [the contextkit website](https://contextkit-lime.vercel.app), click **Get key** and sign in with GitHub. Then:
+
+1. **Pick the repository** from your public GitHub repositories.
+2. **Pick the client:** the agent that will use the key (Claude Code, Codex, Cursor, Gemini CLI, VS Code (Copilot) or Windsurf), or **Add a new name…** for anything else, such as a CI job.
+3. **Copy the key** (`ck_...`). It's shown once, together with the connect command for your agent.
+
+Each key works for one project and is named `<project>-<client>-<key-id>`, e.g. `contextkit-claude-code-3f9a1c2b`. Use **Add agent** to give each tool its own key, and **Rotate** or **Revoke** a key from the same dialog.
+
+> Keys are for **public repositories you own** on GitHub. Organisation, private and non-GitHub repositories aren't supported yet.
 
 ### 2. Connect your agent
 
@@ -74,10 +83,13 @@ Open your project and give your agent a task. It loads the briefing first and lo
 | **Current state** | Progress, next steps, blockers | Replaced on each update |
 | **Sessions** | A summary of each agent's work, and which key wrote it | Appended at the end of every session |
 
+Every decision, session and audit entry records the key that wrote it, so with one key per agent you can see which agent did what.
+
 ## Security & privacy
 
 - **Authenticated:** every call needs an API key; only its SHA-256 hash is stored.
 - **Isolated:** each key can read and write exactly one project.
+- **Owner only:** only a repository's owner on GitHub can create keys for it, and a project belongs to one account.
 - **Redacted:** API keys, passwords and credentials are removed before anything is stored.
 - **Audited:** every call, allowed or denied, is recorded.
 - **Encrypted in transit:** HTTPS to the server, TLS to the database.
@@ -88,5 +100,6 @@ Context is stored in the hosted Postgres database, not on your machine.
 
 - Session compaction: fold old sessions into decisions and state automatically.
 - A token budget for briefings on long-running projects.
-- Sign-up and a dashboard for managing projects and keys.
+- Organisation and private repositories, through a GitHub App.
+- Sharing a project with a team.
 - Rate limiting per key.
