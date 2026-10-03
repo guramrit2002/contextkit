@@ -5,6 +5,13 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
+    <script>
+      // Apply a saved theme before the first paint, so the page never flashes the other one.
+      try {
+        var theme = localStorage.getItem('ck_theme')
+        if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme
+      } catch (e) {}
+    </script>
     <meta
       name="description"
       content="contextkit is an MCP server that keeps your project's decisions, progress, and session history, so the next AI coding agent picks up where the last one stopped."
