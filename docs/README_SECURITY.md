@@ -138,11 +138,11 @@ async def log_decision(project_id, decision, reasoning, ...):
 **Exceptions Defined:** `core/errors.py`
 ```python
 ContextKitError (base)
-├── ProjectNotFoundError
-├── InvalidProjectIdError
 ├── StorageError
-├── BriefingError
-└── ValidationError
+├── ValidationError
+├── AuthenticationError
+├── AuthorizationError (also a PermissionError)
+└── ConfigurationError
 ```
 
 **Try-Except Wrappers:** `core/services.py`

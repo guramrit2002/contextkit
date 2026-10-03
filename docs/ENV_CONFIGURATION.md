@@ -28,8 +28,6 @@ Template file with all available configuration options and descriptions. Safe to
 
 | Variable | Default | Purpose | Type |
 |----------|---------|---------|------|
-| `ENVIRONMENT` | `development` | Deployment environment | `development`, `staging`, `production` |
-| `LOG_LEVEL` | `INFO` | Logging verbosity | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 | `DEFAULT_USER_ID` | `default_user` | User ID for single-user mode (Step 1) | string |
 
 ### Database Configuration
@@ -54,9 +52,10 @@ CONTEXTKIT_DB_PATH=~/.contextkit/contextkit.db
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ENABLE_SESSION_COMPACTION` | `False` | Enable async session compaction |
-| `MAX_BRIEFING_TOKENS` | `4000` | Max tokens in project briefing |
-| `ENABLE_REDACTION` | `True` | Enable secret redaction |
+| `REQUIRE_AUTH` | `False` | Reject tool calls without an API key (always on when `CONTEXTKIT_HOSTED=true`) |
+| `GITHUB_MOCK` | unset | Local development only: answer GitHub calls locally (needs `DJANGO_DEBUG=true` and SQLite; see `web/README.md`) |
+
+Secret redaction is always on; there is no setting to turn it off.
 
 ### Django Settings (Step 2+)
 
@@ -124,65 +123,43 @@ db_path = os.getenv('CONTEXTKIT_DB_PATH', './db.sqlite3')
 
 ## Configuration in Code
 
-### Via `core.config`
-
 ```python
-from core.config import config
+from core.config import config, describe_core_database, resolve_database_url
 
-# Access configuration
-print(config.ENVIRONMENT)
-print(config.DEFAULT_USER_ID)
-print(config.is_development())
-```
-
-### Via Direct Environment Access
-
-```python
-import os
-
-user_id = os.getenv('DEFAULT_USER_ID', 'default_user')
+user_id = config.get_default_user_id()
+hosted = config.is_hosted()                 # CONTEXTKIT_HOSTED=true
+key_required = config.auth_required()       # always True when hosted
+url = resolve_database_url()                # DATABASE_URL (required, ADR 029)
+print(describe_core_database())             # names the database without its URL
 ```
 
 ## Example Configurations
 
-### Development Setup
+### Production (EC2 backend `.env`, Render environment)
 
 ```bash
-# .env for local development
-ENVIRONMENT=development
-LOG_LEVEL=DEBUG
-DEFAULT_USER_ID=dev_user
-CONTEXTKIT_DB_PATH=./db.sqlite3
-DJANGO_DEBUG=True
-DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
-```
-
-### Staging Setup
-
-```bash
-# .env for staging
-ENVIRONMENT=staging
-LOG_LEVEL=INFO
-DEFAULT_USER_ID=staging_user
-CONTEXTKIT_DB_PATH=/data/staging/contextkit.db
+DATABASE_URL='postgresql://…supabase…:5432/postgres?sslmode=require'   # required
+CONTEXTKIT_HOSTED=true
+DJANGO_SECRET_KEY='<generated, single-quoted>'   # quotes stop Compose expanding "$"
 DJANGO_DEBUG=False
-DJANGO_ALLOWED_HOSTS=staging.contextkit.example.com
+DJANGO_ALLOWED_HOSTS='localhost,127.0.0.1,.trycloudflare.com'
+DJANGO_CSRF_TRUSTED_ORIGINS='https://*.trycloudflare.com'
+DJANGO_CORS_ALLOWED_ORIGINS='https://<website>'
+GITHUB_CLIENT_ID='…'
+GITHUB_CLIENT_SECRET='…'
 ```
 
-### Production Setup
+### Local development (SQLite and the GitHub mock)
 
 ```bash
-# .env for production (stored in secrets)
-ENVIRONMENT=production
-LOG_LEVEL=WARNING
-DEFAULT_USER_ID=prod_user
-CONTEXTKIT_DB_PATH=/data/prod/contextkit.db
-DJANGO_SECRET_KEY=<generate-secure-key>
-DJANGO_DEBUG=False
-DJANGO_ALLOWED_HOSTS=contextkit.example.com
-ENABLE_REDACTION=True
-MAX_BRIEFING_TOKENS=4000
+export DATABASE_URL=""                 # empty, not unset: .env would fill it in
+export CONTEXTKIT_ALLOW_SQLITE=true
+export CONTEXTKIT_DB_PATH=~/.contextkit-local/core.sqlite3
+export DJANGO_DB_PATH=~/.contextkit-local/django.sqlite3
+export DJANGO_DEBUG=true GITHUB_MOCK=true
 ```
+
+See `web/README.md` for the full local setup.
 
 ## Hardcoded Values Removed
 
@@ -210,26 +187,6 @@ ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost').split(',')
 ```
 
 ## Accessing Configuration
-
-### In Core Module
-
-```python
-from core.config import config
-
-# Check environment
-if config.is_development():
-    print("Running in development")
-
-# Get user ID
-user_id = config.get_default_user_id()
-
-# Check features
-if config.ENABLE_REDACTION:
-    redact_secrets()
-
-# Get database path
-db_path = config.get_db_path()
-```
 
 ### In Django
 

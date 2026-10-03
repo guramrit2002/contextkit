@@ -1,7 +1,7 @@
 // Connect texts for each supported agent. `ck_...` stands for the user's API key.
 
-export const MCP_URL = 'https://contextkit.onrender.com/mcp'
-export const KEY_PLACEHOLDER = 'ck_...'
+const MCP_URL = 'https://contextkit.onrender.com/mcp'
+const KEY_PLACEHOLDER = 'ck_...'
 const AUTH_HEADER = `Authorization: Bearer ${KEY_PLACEHOLDER}`
 
 export interface AgentSetup {

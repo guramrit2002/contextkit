@@ -47,12 +47,12 @@
 │ 3. ERROR HANDLING (core/errors.py + core/services.py)                       │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │ EXCEPTION HIERARCHY (core/errors.py):                                       │
-│  • Line 4:   ContextKitError (base)                                        │
-│  • Line 10:  ProjectNotFoundError                                          │
-│  • Line 16:  InvalidProjectIdError                                         │
-│  • Line 22:  StorageError                                                  │
-│  • Line 28:  BriefingError                                                 │
-│  • Line 34:  ValidationError                                               │
+│  • ContextKitError (base)                                                  │
+│  • StorageError                                                            │
+│  • ValidationError                                                         │
+│  • AuthenticationError                                                     │
+│  • AuthorizationError (also a PermissionError)                             │
+│  • ConfigurationError                                                      │
 │                                                                              │
 │ TRY-EXCEPT WRAPPERS (core/services.py):                                     │
 │  • Lines 26-64:   get_briefing() - try/except with logging                │
