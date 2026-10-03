@@ -309,6 +309,23 @@ class CoreSchemaCheckTests(SimpleTestCase):
     def test_check_is_registered(self):
         self.assertIn(core_database_schema, checks.registry.registry.get_checks())
 
+    def test_postgres_is_named_without_the_url_or_a_sqlite_path(self):
+        # The error used to name core.sqlite3 even when the database was Supabase.
+        url = "postgresql+psycopg://user:secret-pw@pooler.example.com:5432/postgres"
+        with mock.patch("core.config.resolve_database_url", return_value=url):
+            [issue] = self.run_check("0002")
+
+        self.assertIn("Core database (Postgres database from DATABASE_URL)", issue.msg)
+        self.assertNotIn("sqlite", issue.msg)
+        self.assertNotIn("secret-pw", issue.msg)
+        self.assertNotIn("pooler.example.com", issue.msg)
+
+    def test_sqlite_is_named_by_its_file(self):
+        with mock.patch("core.config.resolve_database_url", return_value="sqlite:////tmp/core.sqlite3"):
+            [issue] = self.run_check("0002")
+
+        self.assertIn("Core database (SQLite file /tmp/core.sqlite3)", issue.msg)
+
 
 class CoreDatabaseUnreachableTests(SimpleTestCase):
     def test_unreachable_database_is_one_clean_error_without_the_url(self):
