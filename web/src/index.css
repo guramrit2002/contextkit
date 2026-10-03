@@ -950,3 +950,76 @@ button.button.primary {
   color: var(--text);
   background: var(--accent-soft);
 }
+
+/* Keys grouped by project (ADR 031) */
+
+.project-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: min(52svh, 420px);
+  overflow-y: auto;
+}
+
+.project-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.project-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.project-name {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 0.95rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-head .button.small {
+  flex: none;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+}
+
+/* Inside a project group the list scrolls with the projects, not on its own. */
+.project-group .key-list {
+  max-height: none;
+  overflow: visible;
+}
+
+.fixed-project {
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.field-error {
+  margin: -6px 0 0;
+  color: #b91c1c;
+  font-size: 0.85rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .field-error {
+    color: #fca5a5;
+  }
+}
+
+:root[data-theme='dark'] .field-error {
+  color: #fca5a5;
+}
+
+.form input[aria-invalid='true'] {
+  border-color: #dc2626;
+}

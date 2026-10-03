@@ -21,7 +21,6 @@ from api import settings as project_settings
 from clients.checks import shared_projects
 from clients.models import ApiKey, Client
 from clients.services import (
-    DUPLICATE_PROJECT_MESSAGE,
     KEY_PREFIX,
     OTHER_OWNER_MESSAGE,
     create_client,
@@ -59,11 +58,11 @@ class CreateClientTests(TestCase):
 
         self.assertNotEqual(key_a, key_b)
 
-    def test_one_client_per_user_and_project(self):
+    def test_the_same_name_twice_in_a_project_is_refused(self):
         create_client(user_id="u1", project_id="proj-1", name="a")
 
         with self.assertRaises(ValidationError):
-            create_client(user_id="u1", project_id="proj-1", name="b")
+            create_client(user_id="u1", project_id="proj-1", name="a")
         self.assertEqual(Client.objects.count(), 1)
         self.assertEqual(ApiKey.objects.count(), 1)
 
@@ -96,12 +95,20 @@ class CreateClientTests(TestCase):
         self.assertEqual(client.project_id, "https://github.com/acme/app")
         self.assertEqual(Client.objects.get().project_id, "https://github.com/acme/app")
 
-    def test_another_form_of_the_same_repository_is_a_duplicate(self):
-        create_client(user_id="u1", project_id="https://github.com/acme/app", name="a")
+    def test_a_name_is_unique_per_project_in_any_url_form_or_case(self):
+        create_client(user_id="u1", project_id="https://github.com/acme/app", name="Codex")
 
-        with self.assertRaisesMessage(ValidationError, DUPLICATE_PROJECT_MESSAGE):
-            create_client(user_id="u1", project_id="git@github.com:acme/app.git", name="b")
-        self.assertEqual(Client.objects.count(), 1)
+        with self.assertRaisesMessage(ValidationError, "already has a key named CODEX"):
+            create_client(user_id="u1", project_id="git@github.com:acme/app.git", name="CODEX")
+        create_client(user_id="u1", project_id="https://github.com/acme/app", name="Cursor")
+        self.assertEqual(Client.objects.count(), 2)
+
+    def test_the_database_enforces_unique_names_ignoring_case(self):
+        from django.db import IntegrityError, transaction
+
+        Client.objects.create(user_id="u1", project_id="p", name="Codex")
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Client.objects.create(user_id="u1", project_id="p", name="codex")
 
     def test_strips_whitespace(self):
         client, _ = create_client(user_id=" u1 ", project_id=" proj-1 ", name=" builder ")
@@ -197,6 +204,11 @@ class DatabasePathTests(SimpleTestCase):
         )
 
 
+def migrate_to_latest():
+    executor = MigrationExecutor(connection)
+    executor.migrate(executor.loader.graph.leaf_nodes())
+
+
 class LegacyAgentsMigrationTests(TransactionTestCase):
     """ADR 025: a database migrated by the former `agents` app keeps every client and key."""
 
@@ -206,6 +218,9 @@ class LegacyAgentsMigrationTests(TransactionTestCase):
         executor = MigrationExecutor(connection)
         executor.loader.build_graph()
         executor.migrate(target)
+
+    def tearDown(self):
+        migrate_to_latest()
 
     def build_legacy_database(self):
         self.migrate([("clients", None)])
@@ -261,7 +276,7 @@ class LegacyAgentsMigrationTests(TransactionTestCase):
         self.migrate([("clients", "0001_initial")])
 
         with self.assertRaises(ValidationError):
-            create_client(user_id="alice", project_id="proj-1", name="dup")
+            create_client(user_id="alice", project_id="proj-1", name="old-bot")
 
 
 class ClientAdminTests(TestCase):
@@ -294,11 +309,11 @@ class ClientAdminTests(TestCase):
 
         self.assertEqual(Client.objects.get().project_id, "https://github.com/acme/app")
 
-    def test_admin_refuses_another_form_of_an_existing_repository(self):
+    def test_admin_refuses_a_duplicate_name_in_any_url_form_or_case(self):
         create_client(user_id="alice", project_id="https://github.com/acme/app", name="bot")
 
         response = self.client.post(reverse("admin:clients_client_add"), {
-            "name": "dup", "user_id": "alice", "project_id": "github.com/acme/app",
+            "name": "BOT", "user_id": "alice", "project_id": "github.com/acme/app",
         })
 
         self.assertEqual(response.status_code, 200)
@@ -381,7 +396,7 @@ class NormalizeProjectIdsMigrationTests(TransactionTestCase):
         executor.migrate(target)
 
     def tearDown(self):
-        self.migrate([("clients", "0002_normalize_project_ids")])
+        migrate_to_latest()
 
     def add(self, client_id, user_id, project_id):
         with connection.cursor() as cursor:
@@ -453,3 +468,52 @@ class SharedProjectsCheckTests(TestCase):
 
         ids = [m.id for m in checks.run_checks(tags=[checks.Tags.database], databases=["default"])]
         self.assertIn("clients.W002", ids)
+
+
+class ClientsPerProjectMigrationTests(TransactionTestCase):
+    """clients 0003 (ADR 031): existing clients survive; many per project afterwards."""
+
+    def migrate(self, target):
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(target)
+
+    def tearDown(self):
+        Client.objects.all().delete()
+        migrate_to_latest()
+
+    def add(self, client_id, user_id, project_id, name):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO clients (id, user_id, project_id, name, created_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, '2026-09-01 00:00:00', '2026-09-01 00:00:00')",
+                [client_id, user_id, project_id, name],
+            )
+
+    def test_applies_with_existing_clients_and_then_allows_several_per_project(self):
+        self.migrate([("clients", "0002_normalize_project_ids")])
+        self.add("c1", "alice", "https://github.com/acme/app", "laptop")
+        self.add("c2", "bob", "https://github.com/bob/app", "laptop")
+
+        self.migrate([("clients", "0003_clients_per_project")])
+
+        self.assertEqual(Client.objects.count(), 2)
+        self.add("c3", "alice", "https://github.com/acme/app", "Codex")
+        self.assertEqual(Client.objects.filter(project_id="https://github.com/acme/app").count(), 2)
+
+    def test_reverse_refuses_clearly_while_a_project_has_several_clients(self):
+        self.migrate([("clients", "0003_clients_per_project")])
+        self.add("c1", "alice", "p", "Claude Code")
+        self.add("c2", "alice", "p", "Codex")
+
+        with self.assertRaisesMessage(RuntimeError, "Revoke the extra clients first"):
+            self.migrate([("clients", "0002_normalize_project_ids")])
+        self.assertEqual(Client.objects.count(), 2)
+
+    def test_reverse_works_with_one_client_per_project(self):
+        self.migrate([("clients", "0003_clients_per_project")])
+        self.add("c1", "alice", "p", "Claude Code")
+
+        self.migrate([("clients", "0002_normalize_project_ids")])
+
+        self.assertEqual(Client.objects.count(), 1)

@@ -3,7 +3,7 @@ from unittest import mock
 
 from django.contrib.auth.models import User
 from django.core.cache import cache
-from django.test import TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 from rest_framework.test import APIClient as HttpClient
 
 from accounts import github
@@ -27,7 +27,7 @@ def detail(client_id):
     return f"{CLIENTS}{client_id}/"
 
 
-class UserApiTestCase(TestCase):
+class UserApiMixin:
     def setUp(self):
         cache.clear()  # throttle counters live in the cache
         self.alice = User.objects.create_user("alice", password="alice-pass-123")
@@ -47,6 +47,10 @@ class UserApiTestCase(TestCase):
 
     def create(self, project_id="https://github.com/acme/app", name="laptop"):
         return self.http.post(CLIENTS, {"project_id": project_id, "name": name}, format="json")
+
+
+class UserApiTestCase(UserApiMixin, TestCase):
+    pass
 
 
 class TokenTests(UserApiTestCase):
@@ -143,14 +147,16 @@ class CreateTests(UserApiTestCase):
             self.assertNotIn("api_key", body)
             self.assertNotIn("key_hash", body)
 
-    def test_one_client_per_user_and_project(self):
+    def test_a_project_can_have_a_key_per_agent(self):
         self.login()
-        self.create(name="first")
+        self.create(name="Claude Code")
 
-        response = self.create(name="second")
+        response = self.create(name="Codex")
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(Client.objects.count(), 1)
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            sorted(Client.objects.values_list("name", flat=True)), ["Claude Code", "Codex"]
+        )
 
     def test_create_stores_and_returns_the_canonical_project_id(self):
         self.login()
@@ -161,17 +167,16 @@ class CreateTests(UserApiTestCase):
         self.assertEqual(response.json()["project_id"], "https://github.com/acme/app")
         self.assertEqual(Client.objects.get().project_id, "https://github.com/acme/app")
 
-    def test_another_form_of_the_same_repository_says_rotate_instead(self):
+    def test_same_name_in_any_case_or_url_form_is_refused_under_name(self):
         self.login()
-        self.create(project_id="https://github.com/acme/app")
+        self.create(project_id="https://github.com/acme/app", name="Claude Code")
 
-        response = self.create(project_id="git@github.com:acme/app.git", name="second")
+        response = self.create(project_id="git@github.com:acme/app.git", name="  claude code ")
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(
-            response.json(),
-            {"project_id": ["You already have a key for this repository. Rotate it instead."]},
-        )
+        self.assertEqual(response.json(), {"name": [
+            "This project already has a key named claude code. Rotate it, or choose another name."
+        ]})
         self.assertEqual(Client.objects.count(), 1)
 
     def test_another_user_cannot_register_the_same_project(self):
@@ -360,10 +365,56 @@ class ProjectOwnershipTests(UserApiTestCase):
         for form in forms:
             with self.subTest(form=form):
                 self.assert_refused(self.create(form), NOT_YOUR_REPO_MESSAGE)
-        # The owner's repo in any form is accepted once, then recognised as the same project.
+        # The owner's repo in any form is accepted, and recognised as the same project.
         self.assertEqual(self.create("git@github.com:ACME/Tool.git").status_code, 201)
-        self.assertEqual(self.create("https://github.com/acme/tool/", name="b").status_code, 400)
+        self.assertEqual(self.create("https://github.com/acme/tool/", name="b").status_code, 201)
         self.assertEqual(
-            list(Client.objects.values_list("project_id", flat=True)),
-            ["https://github.com/acme/tool"],
+            set(Client.objects.values_list("project_id", flat=True)),
+            {"https://github.com/acme/tool"},
         )
+
+
+class KeysPerAgentTests(UserApiMixin, TransactionTestCase):
+    """
+    A project has many clients, one per agent, each with its own key (ADR 031, spec B.5).
+
+    TransactionTestCase: core verifies keys through its own read-only connection, which only
+    sees committed rows.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.login()
+        self.claude = self.create(name="Claude Code").json()
+        self.codex = self.create(name="Codex").json()
+
+    def authenticates(self, key):
+        from django.db import connection
+
+        from core.auth import authenticate_client
+        from core.errors import AuthenticationError
+
+        with mock.patch.dict("os.environ", {"DJANGO_DB_PATH": connection.settings_dict["NAME"]}):
+            try:
+                return authenticate_client(key).client_id
+            except AuthenticationError:
+                return None
+
+    def test_list_returns_every_agent_of_the_project(self):
+        listing = self.http.get(CLIENTS).json()
+
+        self.assertEqual({c["name"] for c in listing}, {"Claude Code", "Codex"})
+        self.assertEqual({c["project_id"] for c in listing}, {"https://github.com/acme/app"})
+
+    def test_rotating_one_agent_leaves_the_other_working(self):
+        rotated = self.http.post(f"{detail(self.claude['id'])}rotate/").json()
+
+        self.assertIsNone(self.authenticates(self.claude["api_key"]))
+        self.assertEqual(self.authenticates(rotated["api_key"]), self.claude["id"])
+        self.assertEqual(self.authenticates(self.codex["api_key"]), self.codex["id"])
+
+    def test_revoking_one_agent_leaves_the_other_working(self):
+        self.http.delete(detail(self.claude["id"]))
+
+        self.assertIsNone(self.authenticates(self.claude["api_key"]))
+        self.assertEqual(self.authenticates(self.codex["api_key"]), self.codex["id"])
