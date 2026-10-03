@@ -76,9 +76,10 @@ A typed URL stays available (for example, when GitHub's repository list fails), 
 
 ## Amendment (2026-10-04): key names
 
-On the website and the user API, the user picks the **client** (an agent from the list, or a new name) instead of typing a key name. The server names the key `<project>-<client>-<key-id>`: the repository's name, the client in lowercase with hyphens, and the first 8 characters of the client's ID, e.g. `contextkit-claude-code-3f9a1c2b`.
+On the website and the user API, the user picks the **client** (an agent from the list, or a new name) instead of typing a key name. The server names the key `<project>-<client>-<key-id>`: the repository's name, the client in lowercase with hyphens, and the first 8 characters of the **API key's** ID, e.g. `contextkit-claude-code-3f9a1c2b`.
 
 - Because the name ends with the key's ID, the same agent can hold several keys on one project.
+- Rotating a key gives it a new ID, and the name's last part follows it. Names that don't end with the current key's ID (operator names) are never changed.
 - The `(user_id, project_id, lower(name))` constraint stays, and still applies to names given by operators (admin, `manage.py create_client`), which keep the name they're given.
 - The API takes `client`; `name` is still accepted as an alias for older callers.
 - Existing clients keep their names.

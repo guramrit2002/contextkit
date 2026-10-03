@@ -164,7 +164,21 @@ class CreateTests(UserApiTestCase):
         payload = {"project_id": "git@github.com:Acme/My.App.git", "client": "VS Code (Copilot)"}
         body = self.http.post(CLIENTS, payload, format="json").json()
 
-        self.assertEqual(body["name"], f"my-app-vs-code-copilot-{body['id'][:8]}")
+        key_id = ApiKey.objects.get(client_id=body["id"]).id
+        self.assertEqual(body["name"], f"my-app-vs-code-copilot-{key_id[:8]}")
+        self.assertNotEqual(key_id[:8], body["id"][:8])  # the API key's ID, not the client's
+
+    def test_rotating_renames_the_key_to_the_new_key_id(self):
+        self.login()
+        created = self.create(project_id="https://github.com/acme/app", name="Codex").json()
+        old_key_id = ApiKey.objects.get(client_id=created["id"]).id
+
+        rotated = self.http.post(f"{detail(created['id'])}rotate/").json()
+
+        new_key_id = ApiKey.objects.get(client_id=created["id"]).id
+        self.assertNotEqual(new_key_id, old_key_id)
+        self.assertEqual(rotated["name"], f"app-codex-{new_key_id[:8]}")
+        self.assertEqual(Client.objects.get(id=created["id"]).name, rotated["name"])
 
     def test_client_or_its_older_alias_name_is_required(self):
         self.login()
