@@ -21,8 +21,9 @@
   -webkit-font-smoothing: antialiased;
 }
 
+/* Dark theme: follows the system unless the visitor picked a theme with the header toggle. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --bg: #0c1211;
     --surface: #131c1a;
     --text: #e6eeec;
@@ -35,7 +36,28 @@
     --code-bg: #070c0b;
     --code-text: #c9f2ea;
     --shadow: 0 18px 40px -24px rgb(0 0 0 / 0.8);
+    color-scheme: dark;
   }
+}
+
+:root[data-theme='dark'] {
+  --bg: #0c1211;
+  --surface: #131c1a;
+  --text: #e6eeec;
+  --muted: #9aaaa6;
+  --border: #25322f;
+  --accent: #2dd4bf;
+  --accent-strong: #5eead4;
+  --accent-soft: #11302c;
+  --on-accent: #042f2c;
+  --code-bg: #070c0b;
+  --code-text: #c9f2ea;
+  --shadow: 0 18px 40px -24px rgb(0 0 0 / 0.8);
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
 }
 
 *,
@@ -566,13 +588,21 @@ button.button.primary {
 }
 
 @media (prefers-color-scheme: dark) {
-  .form-error {
+  :root:not([data-theme='light']) .form-error {
     color: #fca5a5;
   }
 
-  .form-warning {
+  :root:not([data-theme='light']) .form-warning {
     color: #fcd34d;
   }
+}
+
+:root[data-theme='dark'] .form-error {
+  color: #fca5a5;
+}
+
+:root[data-theme='dark'] .form-warning {
+  color: #fcd34d;
 }
 
 .modal .command {
@@ -892,4 +922,21 @@ button.button.primary {
   width: 14px;
   height: 14px;
   flex: none;
+}
+
+/* Theme toggle in the navbar */
+
+.theme-toggle {
+  display: inline-flex;
+  padding: 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  color: var(--text);
+  background: var(--accent-soft);
 }

@@ -3,6 +3,7 @@ import ApiKeyModal from './ApiKeyModal'
 import { isConfigured } from './api'
 import { takeOAuthReturn } from './oauth'
 import { SETUPS } from './setups'
+import ThemeToggle from './ThemeToggle'
 
 const REPO_URL = 'https://github.com/guramrit2002/contextkit'
 // HEAD resolves to the default branch on GitHub.
@@ -195,6 +196,7 @@ export default function App() {
               Get key
             </button>
           )}
+          <ThemeToggle />
           <a className="bar-icon" href={REPO_URL} aria-label="contextkit on GitHub" title="GitHub">
             <GitHubMark />
           </a>
