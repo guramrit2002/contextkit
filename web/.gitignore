@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Each deployment provides its own runtime config (see config.example.json).
+public/config.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
