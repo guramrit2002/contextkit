@@ -84,6 +84,24 @@ def is_sqlite(url: str) -> bool:
     return url.startswith("sqlite")
 
 
+def describe_database_url(url: str) -> str:
+    """
+    Name a database for messages without revealing it: never the URL, which holds the password.
+
+    SQLite gets its file path; anything else only its kind and where it was configured.
+    """
+    if is_sqlite(url):
+        return f"SQLite file {url.split(':///', 1)[-1]}"
+    if url.startswith(POSTGRES_DRIVER) or url.startswith(POSTGRES_SCHEMES):
+        return "Postgres database from DATABASE_URL"
+    return "database from DATABASE_URL"
+
+
+def describe_core_database() -> str:
+    """The core database in use, for messages: e.g. "Postgres database from DATABASE_URL"."""
+    return describe_database_url(resolve_database_url())
+
+
 class Config:
     """Application configuration loaded from environment variables."""
 
