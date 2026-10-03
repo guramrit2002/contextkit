@@ -8,6 +8,8 @@ import urllib.parse
 import urllib.request
 from typing import NamedTuple, Optional
 
+from accounts import mock_github
+
 TOKEN_URL = "https://github.com/login/oauth/access_token"
 USER_URL = "https://api.github.com/user"
 REPOS_URL = "https://api.github.com/users/{login}/repos"
@@ -42,6 +44,8 @@ class GitHubRepoOwner(NamedTuple):
 
 
 def is_configured() -> bool:
+    if mock_github.enabled():
+        return True
     return bool(os.getenv("GITHUB_CLIENT_ID") and os.getenv("GITHUB_CLIENT_SECRET"))
 
 
@@ -55,6 +59,8 @@ def _request(request: urllib.request.Request) -> dict:
 
 def exchange_code(code: str, redirect_uri: Optional[str] = None) -> str:
     """Trade the one-time authorization code for a GitHub access token."""
+    if mock_github.enabled():
+        return "mock-token"
     fields = {
         "client_id": os.environ["GITHUB_CLIENT_ID"],
         "client_secret": os.environ["GITHUB_CLIENT_SECRET"],
@@ -76,6 +82,8 @@ def exchange_code(code: str, redirect_uri: Optional[str] = None) -> str:
 
 
 def fetch_user(access_token: str) -> GitHubUser:
+    if mock_github.enabled():
+        return GitHubUser(id=mock_github.github_id(), login=mock_github.login())
     data = _request(urllib.request.Request(
         USER_URL,
         headers={
@@ -97,6 +105,11 @@ def _app_credentials() -> str:
 
 def list_public_repos(login: str) -> list[GitHubRepo]:
     """The user's own public repositories (not organisations'), most recently pushed first."""
+    if mock_github.enabled():
+        return [
+            GitHubRepo(f"{login}/{name}", f"https://github.com/{login}/{name}", None, False)
+            for name in mock_github.repo_names()
+        ]
     repos: list[GitHubRepo] = []
     for page in range(1, MAX_REPO_PAGES + 1):
         query = urllib.parse.urlencode(
@@ -135,6 +148,12 @@ def fetch_public_repo(full_name: str) -> Optional[GitHubRepoOwner]:
     credentials. Raises GitHubAuthError when GitHub can't be reached or answers anything else.
     """
     owner, _, repo = full_name.partition("/")
+    if mock_github.enabled():
+        # The mock login owns its listed repositories; anyone else's repo has its path owner.
+        if owner.lower() == mock_github.login().lower():
+            names = {name.lower() for name in mock_github.repo_names()}
+            return GitHubRepoOwner(owner, "User", False) if repo.lower() in names else None
+        return GitHubRepoOwner(owner, "User", False)
     url = REPO_URL.format(
         owner=urllib.parse.quote(owner, safe=""), repo=urllib.parse.quote(repo, safe="")
     )

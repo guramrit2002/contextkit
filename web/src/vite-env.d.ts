@@ -5,6 +5,8 @@ interface ImportMetaEnv {
   readonly VITE_API_BASE_URL?: string
   /** Client ID of the GitHub OAuth app whose callback URL is this site's origin plus "/". */
   readonly VITE_GITHUB_CLIENT_ID?: string
+  /** Local development only: the backend's GitHub mock page instead of github.com. */
+  readonly VITE_GITHUB_AUTHORIZE_URL?: string
 }
 
 interface ImportMeta {

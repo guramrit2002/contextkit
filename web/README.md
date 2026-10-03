@@ -63,3 +63,35 @@ When they are set:
 The access token and any issued key live only in the page's memory and are dropped when the
 dialog closes. `sessionStorage` holds only the OAuth state, a reopen flag and the selected agent,
 and only until GitHub sends the user back.
+
+## Local development without GitHub
+
+The backend can stand in for GitHub (sign-in, your repository list and the ownership check), so
+the Get key flow works locally without an OAuth app or network. It only runs with
+`DJANGO_DEBUG=true` on a **local SQLite database**: it approves repository ownership, so it
+refuses to start against the shared Postgres database (system check `accounts.E001`).
+
+Backend (from `api/`):
+
+```bash
+export DATABASE_URL="" CONTEXTKIT_ALLOW_SQLITE=true CONTEXTKIT_HOSTED=true
+export CONTEXTKIT_DB_PATH=~/.contextkit-local/core.sqlite3 DJANGO_DB_PATH=~/.contextkit-local/django.sqlite3
+export DJANGO_DEBUG=true DJANGO_SECRET_KEY=local-dev-only DJANGO_CORS_ALLOWED_ORIGINS=http://localhost:5180
+export GITHUB_MOCK=true GITHUB_MOCK_LOGIN=you GITHUB_MOCK_REPOS=app,tool   # optional: login and repos
+(cd .. && alembic upgrade head) && python manage.py migrate
+python manage.py runserver 127.0.0.1:8010
+```
+
+`DATABASE_URL` must be exported **empty**, not unset, or `.env` fills in the shared database.
+
+Website (`web/.env.local`):
+
+```bash
+VITE_API_BASE_URL=http://127.0.0.1:8010
+VITE_GITHUB_CLIENT_ID=local-mock
+VITE_GITHUB_AUTHORIZE_URL=http://127.0.0.1:8010/api/v1/auth/github/mock-authorize/
+```
+
+Then `npm run dev -- --port 5180 --strictPort` and open `http://localhost:5180/`. **Continue with
+GitHub** returns at once, signed in as the mock login, and the picker lists the mock repositories.
+
