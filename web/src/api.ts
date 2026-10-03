@@ -1,7 +1,6 @@
 // Calls to the contextkit user API (ADR 028, ADR 030). The JWT is only ever held in memory.
 
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/+$/, '')
-export const GITHUB_CLIENT_ID = (import.meta.env.VITE_GITHUB_CLIENT_ID ?? '').trim()
+import { apiBaseUrl, githubClientId } from './config'
 
 export interface ClientKey {
   id: string
@@ -38,7 +37,7 @@ export class ApiError extends Error {
 
 /** Both values are needed for the Get key flow; without them the site stays fully static. */
 export function isConfigured(): boolean {
-  return BASE_URL.length > 0 && GITHUB_CLIENT_ID.length > 0
+  return apiBaseUrl().length > 0 && githubClientId().length > 0
 }
 
 function firstMessage(body: unknown): string | null {
@@ -62,7 +61,7 @@ async function request<T>(
 ): Promise<T> {
   let response: Response
   try {
-    response = await fetch(`${BASE_URL}${path}`, {
+    response = await fetch(`${apiBaseUrl()}${path}`, {
       method,
       headers: {
         ...(options.body ? { 'Content-Type': 'application/json' } : {}),

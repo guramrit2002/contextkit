@@ -1,7 +1,7 @@
 // GitHub sign-in by full-page redirect (ADR 030). sessionStorage holds only the OAuth state,
 // a "reopen the key dialog" flag and the selected agent, and only until the user returns.
 
-import { GITHUB_CLIENT_ID } from './api'
+import { githubClientId } from './config'
 
 const STATE_KEY = 'ck_oauth_state'
 const RETURN_KEY = 'ck_oauth_return'
@@ -47,7 +47,7 @@ export function beginGitHubSignIn(agentIndex: number): boolean {
     return false
   }
   const params = new URLSearchParams({
-    client_id: GITHUB_CLIENT_ID,
+    client_id: githubClientId(),
     redirect_uri: redirectUri(),
     state,
     allow_signup: 'true',

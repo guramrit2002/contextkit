@@ -13,15 +13,46 @@ npm run build    # static files in dist/
 
 ## Get key dialog
 
-The dialog needs two public build-time values (see `.env.example`):
+The dialog needs two public settings: the Django backend that serves `/api/v1/`, and the GitHub
+OAuth app's client ID. Without both, the **Get key** button is hidden and the site is fully
+static: `dist/` can be served by any static host or CDN.
+
+### Runtime config: `/config.json` (deployments)
+
+The site reads both settings from `/config.json` on its own origin when the page loads, so a new
+backend URL (for example after the Cloudflare quick tunnel restarts) needs only an edit to that
+file, not a rebuild:
+
+```json
+{
+  "apiBaseUrl": "https://<tunnel or domain>",
+  "githubClientId": "<GitHub OAuth app client id>"
+}
+```
+
+Copy `public/config.example.json` to `config.json` next to `index.html` in the deployed site.
+`public/config.json` is gitignored: each deployment provides its own.
+
+- **Public values only.** Everyone who visits the site can read this file. Never put the GitHub
+  client secret, an API key or anything else secret in it.
+- **Precedence per field:** a valid value in `config.json`, then the build-time variable below,
+  then nothing.
+- **Validation:** `apiBaseUrl` must be `https://` (`http://` only for `localhost` or `127.0.0.1`);
+  `githubClientId` must match `^[A-Za-z0-9._-]{1,100}$`. Invalid values are ignored with a
+  console warning.
+- A missing file, bad JSON, a network error or a 3-second timeout never breaks the page; the
+  build-time values apply.
+- Serve it with `Cache-Control: no-store` (the site also fetches it with `cache: 'no-store'`), so
+  a changed URL applies on the next page load.
+
+### Build-time fallback (local development)
 
 | Variable | Value |
 |---|---|
 | `VITE_API_BASE_URL` | The Django backend that serves `/api/v1/`, no trailing slash |
 | `VITE_GITHUB_CLIENT_ID` | Client ID of the GitHub OAuth app |
 
-Without either one, the **Get key** button is hidden and the site is fully static: `dist/` can be
-served by any static host or CDN.
+Set them in `web/.env.local` (see `.env.example`). `config.json` overrides them.
 
 When they are set:
 

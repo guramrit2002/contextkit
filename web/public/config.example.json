@@ -1,0 +1,4 @@
+{
+  "apiBaseUrl": "https://<tunnel or domain>",
+  "githubClientId": "<GitHub OAuth app client id>"
+}
