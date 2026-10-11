@@ -174,10 +174,6 @@ A `CLAUDE.md` file works great for small solo projects or one-off tasks. context
 
 See [docs/](docs/) for architecture decisions (ADRs), setup guides, and the full project status.
 
-## Contributing
-
-This project is in early development. Ideas, feedback, and contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) (coming soon).
-
 ## License
 
 TBD
