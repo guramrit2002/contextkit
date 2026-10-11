@@ -50,45 +50,13 @@ Agents are instructed to do this when you add contextkit to your project. Hooks 
 
 ## Get started
 
-contextkit runs against a PostgreSQL database. Set `DATABASE_URL` to your Supabase or Postgres instance, then configure your agent.
+### 1. Get an API key
 
-**Requirements:**
-- Python 3.12+
-- PostgreSQL database (Supabase recommended)
-- `DATABASE_URL` environment variable pointing to your database
-
-### 1. Install and configure
-
-Clone the repository:
-
-```bash
-git clone https://github.com/anthropics/contextkit.git
-cd contextkit
-uv sync
-```
-
-Create a `.env` file with your database URL:
-
-```bash
-DATABASE_URL=postgresql://user:password@host/database
-```
-
-Start the MCP server:
-
-```bash
-python3 -m uv run python -m mcp_server
-```
-
-### 2. Get an API key (hosted mode)
-
-On [the contextkit website](https://contextkit-lime.vercel.app), sign in with GitHub to:
-
-1. Create an API key for a public repository you own.
-2. Get the setup command for your agent.
+On [the contextkit website](https://contextkit-lime.vercel.app), sign in with GitHub to create an API key for a public repository you own. You'll get a setup command for your agent.
 
 Each key works for one project. Create multiple keys—one per agent—to see which tool wrote what.
 
-### 3. Connect your agent
+### 2. Connect your agent
 
 Pick your agent and follow its guide:
 
