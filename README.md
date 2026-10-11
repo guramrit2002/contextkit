@@ -162,24 +162,6 @@ A `CLAUDE.md` file works great for small solo projects or one-off tasks. context
 ✓ Secret redaction (regex-based; see `core/redaction.py`)  
 ✓ 5+ agent setup guides (Claude Code, Codex, Cursor, Gemini CLI, VS Code, Windsurf)  
 
-## Next
-
-- Session compaction: fold old sessions into decisions and state automatically.
-- Session-start and pre-compaction hooks: call code to keep context fresh.
-- Smarter context retrieval: include only the decisions and sessions relevant to the current task, within a token budget.
-- Usage stats per API key.
-- Hosted service stabilization (Render + Supabase).
-
-## Later
-
-- Decision ↔ file linking: link decisions to the code they affect.
-- Staleness detection: flag decisions that may no longer be valid.
-- Conflict detection: warn when two agents made incompatible decisions.
-- Team sharing with RBAC.
-- Organisation and private repositories via GitHub App.
-- Bring-your-own database (any Postgres instance).
-- ADR and PR exports.
-
 ---
 
 ## Architecture
