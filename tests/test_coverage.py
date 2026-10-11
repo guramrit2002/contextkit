@@ -1,10 +1,9 @@
 """Comprehensive tests for 100% code coverage."""
-from datetime import datetime
 from pathlib import Path
 
 import pytest
 
-from core import config, errors, redaction, schemas, services, storage, validation
+from core import config, errors, redaction, services, storage, validation
 from core.db_init import initialize_database
 from mcp_server import server, tools
 from mcp_server.__main__ import *  # noqa: F401, F403
@@ -26,146 +25,17 @@ def isolated_db(tmp_path, monkeypatch):
 
 def test_exception_hierarchy():
     """Test custom exception classes."""
-    assert issubclass(errors.ProjectNotFoundError, errors.ContextKitError)
-    assert issubclass(errors.InvalidProjectIdError, errors.ContextKitError)
-    assert issubclass(errors.StorageError, errors.ContextKitError)
-    assert issubclass(errors.BriefingError, errors.ContextKitError)
-    assert issubclass(errors.ValidationError, errors.ContextKitError)
-
-    # Test raising and catching
-    with pytest.raises(errors.ProjectNotFoundError):
-        raise errors.ProjectNotFoundError("Project not found")
-
-    with pytest.raises(errors.InvalidProjectIdError):
-        raise errors.InvalidProjectIdError("Invalid ID")
-
-    with pytest.raises(errors.StorageError):
-        raise errors.StorageError("Storage failed")
-
-    with pytest.raises(errors.BriefingError):
-        raise errors.BriefingError("Briefing failed")
-
-    with pytest.raises(errors.ValidationError):
-        raise errors.ValidationError("Validation failed")
-
-    with pytest.raises(errors.ContextKitError):
-        raise errors.ContextKitError("Base error")
-
-
-# ============================================================================
-# core/schemas.py tests
-# ============================================================================
-
-
-def test_project_schema():
-    """Test ProjectSchema model."""
-    now = datetime.utcnow()
-    project = schemas.ProjectSchema(
-        id="test-project",
-        name="Test Project",
-        git_remote="https://github.com/test/repo.git",
-        local_path="/path/to/repo",
-        created_at=now,
-        updated_at=now,
-    )
-    assert project.id == "test-project"
-    assert project.name == "Test Project"
-    assert project.git_remote == "https://github.com/test/repo.git"
-
-
-def test_decision_schema():
-    """Test DecisionSchema model."""
-    now = datetime.utcnow()
-    decision = schemas.DecisionSchema(
-        id="dec-1",
-        project_id="proj-1",
-        decision="Use SQLite",
-        reasoning="Simple local storage",
-        alternatives_considered="PostgreSQL",
-        created_at=now,
-    )
-    assert decision.decision == "Use SQLite"
-    assert decision.reasoning == "Simple local storage"
-
-
-def test_state_schema():
-    """Test StateSchema model."""
-    now = datetime.utcnow()
-    state = schemas.StateSchema(
-        id="state-1",
-        project_id="proj-1",
-        progress="50% complete",
-        next_steps="Add tests",
-        blockers="None",
-        updated_at=now,
-    )
-    assert state.progress == "50% complete"
-
-
-def test_session_schema():
-    """Test SessionSchema model."""
-    now = datetime.utcnow()
-    session = schemas.SessionSchema(
-        id="sess-1",
-        project_id="proj-1",
-        summary="Built storage layer",
-        decisions_made="Used SQLAlchemy",
-        created_at=now,
-    )
-    assert session.summary == "Built storage layer"
-
-
-def test_briefing_schema():
-    """Test BriefingSchema model."""
-    now = datetime.utcnow()
-    project = schemas.ProjectSchema(
-        id="proj-1",
-        name="Test",
-        local_path="/path",
-        created_at=now,
-        updated_at=now,
-    )
-    decision = schemas.DecisionSchema(
-        id="dec-1",
-        project_id="proj-1",
-        decision="Decide",
-        reasoning="Reason",
-        created_at=now,
-    )
-    state = schemas.StateSchema(
-        id="state-1",
-        project_id="proj-1",
-        progress="Progress",
-        next_steps="Steps",
-        updated_at=now,
-    )
-    session = schemas.SessionSchema(
-        id="sess-1",
-        project_id="proj-1",
-        summary="Summary",
-        created_at=now,
-    )
-    briefing = schemas.BriefingSchema(
-        project=project,
-        decisions=[decision],
-        current_state=state,
-        recent_sessions=[session],
-    )
-    assert briefing.project.id == "proj-1"
-    assert len(briefing.decisions) == 1
+    for cls in (errors.StorageError, errors.ValidationError, errors.AuthenticationError,
+                errors.AuthorizationError, errors.ConfigurationError):
+        assert issubclass(cls, errors.ContextKitError)
+        with pytest.raises(errors.ContextKitError):
+            raise cls("failed")
+    assert issubclass(errors.AuthorizationError, PermissionError)
 
 
 # ============================================================================
 # core/config.py tests
 # ============================================================================
-
-
-def test_config_environment_detection():
-    """Test environment detection."""
-    cfg = config.config
-    # Test with current config (which is already loaded)
-    assert callable(cfg.is_development)
-    assert callable(cfg.is_production)
 
 
 def test_config_get_default_user_id():
@@ -174,27 +44,6 @@ def test_config_get_default_user_id():
     user_id = cfg.get_default_user_id()
     assert isinstance(user_id, str)
     assert len(user_id) > 0
-
-
-def test_config_is_development():
-    """Test is_development method."""
-    cfg = config.config
-    result = cfg.is_development()
-    assert isinstance(result, bool)
-
-
-def test_config_is_production():
-    """Test is_production method."""
-    cfg = config.config
-    result = cfg.is_production()
-    assert isinstance(result, bool)
-
-
-def test_config_get_db_path():
-    """Test get_db_path method."""
-    cfg = config.config
-    db_path = cfg.get_db_path()
-    assert db_path is None or isinstance(db_path, str)
 
 
 # ============================================================================

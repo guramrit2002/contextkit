@@ -7,16 +7,6 @@ class ContextKitError(Exception):
     pass
 
 
-class ProjectNotFoundError(ContextKitError):
-    """Raised when a project cannot be found."""
-
-    pass
-
-
-class InvalidProjectIdError(ContextKitError):
-    """Raised when a project ID is invalid."""
-
-    pass
 
 
 class StorageError(ContextKitError):
@@ -24,11 +14,6 @@ class StorageError(ContextKitError):
 
     pass
 
-
-class BriefingError(ContextKitError):
-    """Raised when briefing retrieval fails."""
-
-    pass
 
 
 class ValidationError(ContextKitError):
