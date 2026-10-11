@@ -173,7 +173,3 @@ A `CLAUDE.md` file works great for small solo projects or one-off tasks. context
 - **Tests:** 160+ pytest, 48+ Django, 95%+ coverage (tests use SQLite, production requires Postgres).
 
 See [docs/](docs/) for architecture decisions (ADRs), setup guides, and the full project status.
-
-## License
-
-TBD
