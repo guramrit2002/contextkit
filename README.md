@@ -50,46 +50,56 @@ Agents are instructed to do this when you add contextkit to your project. Hooks 
 
 ## Get started
 
-### Local mode
+contextkit runs against a PostgreSQL database. Set `DATABASE_URL` to your Supabase or Postgres instance, then configure your agent.
 
-Run contextkit on your machine with SQLite. No network calls, no API key needed (unless you set `REQUIRE_AUTH=true`).
+**Requirements:**
+- Python 3.12+
+- PostgreSQL database (Supabase recommended)
+- `DATABASE_URL` environment variable pointing to your database
 
-**Requirements:** Python 3.12+, uv
+### 1. Install and configure
+
+Clone the repository:
 
 ```bash
 git clone https://github.com/anthropics/contextkit.git
 cd contextkit
 uv sync
+```
+
+Create a `.env` file with your database URL:
+
+```bash
+DATABASE_URL=postgresql://user:password@host/database
+```
+
+Start the MCP server:
+
+```bash
 python3 -m uv run python -m mcp_server
 ```
 
-Then register the server with your agent:
+### 2. Get an API key (hosted mode)
 
-**Claude Code:**
-```bash
-claude mcp add contextkit -- python3 -m uv run python -m mcp_server
-```
+On [the contextkit website](https://contextkit-lime.vercel.app), sign in with GitHub to:
 
-**Codex:** Add to `~/.codex/config.toml`:
-```toml
-[mcp_servers.contextkit]
-command = "python3"
-args = ["-m", "uv", "run", "python", "-m", "mcp_server"]
-```
+1. Create an API key for a public repository you own.
+2. Get the setup command for your agent.
 
-**Cursor, Windsurf, Gemini CLI:** See [docs/guide/](docs/guide/) for setup instructions.
+Each key works for one project. Create multiple keys—one per agent—to see which tool wrote what.
 
-Context is stored in `~/.contextkit/contextkit.db` (SQLite), which you can back up or version-control manually.
+### 3. Connect your agent
 
-### Hosted mode (coming soon)
+Pick your agent and follow its guide:
 
-Store context on a shared server so all your agents have the same briefing, whether you're on the same machine or not. Requires an API key (free tier available).
-
-1. Visit [contextkit-lime.vercel.app](https://contextkit-lime.vercel.app) and sign in with GitHub.
-2. Create an API key for a public repository you own.
-3. Register the key with your agent (setup varies by tool).
-
-Each API key works for one project. Create multiple keys—one per agent—to see which tool wrote what in the audit log.
+| Agent | Setup guide |
+|---|---|
+| Claude Code | [docs/guide/claude-code.md](docs/guide/claude-code.md) |
+| Codex | [docs/guide/codex.md](docs/guide/codex.md) |
+| Cursor | [docs/guide/cursor.md](docs/guide/cursor.md) |
+| Gemini CLI | [docs/guide/gemini-cli.md](docs/guide/gemini-cli.md) |
+| VS Code (GitHub Copilot) | [docs/guide/vscode.md](docs/guide/vscode.md) |
+| Windsurf | [docs/guide/windsurf.md](docs/guide/windsurf.md) |
 
 ---
 
@@ -103,21 +113,15 @@ Each API key works for one project. Create multiple keys—one per agent—to se
 
 ## Security & privacy
 
-### Local mode
-- **No network:** context stays on your machine in `~/.contextkit/contextkit.db`.
-- **No authentication:** unless `REQUIRE_AUTH=true` is set, calls don't need an API key.
-- **No redaction:** secrets are your responsibility. Provide clean code and prompts.
-
-### Hosted mode (future)
-- **Authenticated:** every call requires an API key; only the SHA-256 hash is stored.
+- **Authenticated:** every call requires an API key (SHA-256 hash stored).
 - **Isolated:** each key can read and write exactly one project.
 - **Project ownership:** only a repository's owner on GitHub can create keys for it.
 - **Redacted:** API keys, passwords, and common credentials are removed from all text before storage or summarization.
 - **Audited:** every call—allowed or denied—is recorded with client, tool, status, and timestamp.
-- **Encrypted in transit:** HTTPS to the server, TLS to the database (Supabase Postgres).
+- **Encrypted in transit:** HTTPS to the server, TLS to the database.
 - **No telemetry:** your context is never used to train models or improve the service.
 
-Context is stored in a PostgreSQL database, not on your machine. Encryption at rest is not yet available; do not store unencrypted secrets in decisions or session summaries.
+Context is stored in a PostgreSQL database (Supabase recommended). Encryption at rest is not yet available; do not store unencrypted secrets in decisions or session summaries.
 
 ---
 
@@ -133,7 +137,7 @@ A `CLAUDE.md` file works great for small solo projects or one-off tasks. context
 | Teammates need the same briefing | — Copy the file | ✓ One source |
 | You need a record of past work | — Single snapshot | ✓ History |
 | Decisions with reasoning | — Free text | ✓ Structured |
-| Shared infrastructure (hosted mode) | — Not applicable | ✓ Multiple machines |
+| Shared across machines | — Not applicable | ✓ Postgres backend |
 
 **Keep CLAUDE.md if:** You're the only person working on a small project, use one agent, and rarely clear your session.
 
@@ -145,20 +149,18 @@ A `CLAUDE.md` file works great for small solo projects or one-off tasks. context
 
 - **Solo + single tool + no compaction:** If you're the only developer, use only Claude Code, and never hit the session limit, a CLAUDE.md file is simpler and faster.
 - **Ad-hoc tasks:** One-off scripts or small fixes where context loss doesn't matter.
-- **Lightweight observability:** If you only need to know what the agent *did*, not *why*, an audit log is cheaper than storing decisions.
+- **No PostgreSQL available:** If you don't have access to a Postgres database, contextkit isn't usable yet.
 
 ---
 
 ## Shipped (v0.2+)
 
 ✓ 5 MCP tools (get_context, log_decision, update_state, log_session, export_markdown)  
-✓ Local mode with SQLite  
-✓ Hosted mode with API key authentication  
+✓ PostgreSQL support (required; ADR 029)  
+✓ API key authentication and audit logging  
 ✓ REST API for agents without MCP (`/api/agent/v1/`)  
 ✓ Secret redaction (regex-based; see `core/redaction.py`)  
-✓ Audit logging (every call, auth or deny)  
-✓ Django admin for key management (hosted mode)  
-✓ 5 agent setup guides (Claude Code, Codex, Cursor, Gemini CLI, VS Code, Windsurf)  
+✓ 5+ agent setup guides (Claude Code, Codex, Cursor, Gemini CLI, VS Code, Windsurf)  
 
 ## Next
 
@@ -166,6 +168,7 @@ A `CLAUDE.md` file works great for small solo projects or one-off tasks. context
 - Session-start and pre-compaction hooks: call code to keep context fresh.
 - Smarter context retrieval: include only the decisions and sessions relevant to the current task, within a token budget.
 - Usage stats per API key.
+- Hosted service stabilization (Render + Supabase).
 
 ## Later
 
@@ -183,9 +186,9 @@ A `CLAUDE.md` file works great for small solo projects or one-off tasks. context
 
 - **MCP server:** FastMCP, thin transport layer only.
 - **Core:** Plain Python with Pydantic schemas and SQLAlchemy ORM.
-- **Database:** SQLite locally; PostgreSQL (Supabase) in hosted mode.
-- **Django:** API, key management, audit viewing (hosted mode only).
-- **Tests:** 160+ pytest, 48+ Django, 95%+ coverage.
+- **Database:** PostgreSQL (required; ADR 029).
+- **Django:** API, key management, audit viewing.
+- **Tests:** 160+ pytest, 48+ Django, 95%+ coverage (tests use SQLite, production requires Postgres).
 
 See [docs/](docs/) for architecture decisions (ADRs), setup guides, and the full project status.
 
