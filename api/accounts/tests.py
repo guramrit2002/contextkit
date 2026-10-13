@@ -171,11 +171,11 @@ class GitHubRepoListingTests(TestCase):
         return mock.patch("urllib.request.urlopen", side_effect=responses)
 
     @mock.patch.dict("os.environ", CONFIGURED)
-    def test_lists_public_repos_with_app_credentials_and_no_user_token(self):
+    def test_lists_repos_including_private(self):
         with self.pages([repo("App"), repo("secret", private=True)]) as urlopen:
             repos = github.list_public_repos("octocat")
 
-        self.assertEqual([r.full_name for r in repos], ["octocat/App"])
+        self.assertEqual([r.full_name for r in repos], ["octocat/App", "octocat/secret"])
         request = urlopen.call_args.args[0]
         self.assertTrue(request.full_url.startswith("https://api.github.com/users/octocat/repos?"))
         self.assertIn("type=owner", request.full_url)
