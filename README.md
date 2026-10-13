@@ -52,7 +52,7 @@ Agents are instructed to do this when you add contextkit to your project. Hooks 
 
 ### 1. Get an API key
 
-On [the contextkit website](https://contextkit-lime.vercel.app), sign in with GitHub to create an API key for a public repository you own. You'll get a setup command for your agent.
+On [the contextkit website](https://contextkit-lime.vercel.app), sign in with GitHub to create an API key for a repository you own (public or private). You'll get a setup command for your agent.
 
 Each key works for one project. Create multiple keys—one per agent—to see which tool wrote what.
 

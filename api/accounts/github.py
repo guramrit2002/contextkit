@@ -104,7 +104,7 @@ def _app_credentials() -> str:
 
 
 def list_public_repos(login: str) -> list[GitHubRepo]:
-    """The user's own public repositories (not organisations'), most recently pushed first."""
+    """The user's own repositories (public and private, not organisations'), most recently pushed first."""
     if mock_github.enabled():
         return [
             GitHubRepo(f"{login}/{name}", f"https://github.com/{login}/{name}", None, False)
@@ -133,7 +133,7 @@ def list_public_repos(login: str) -> list[GitHubRepo]:
                 fork=bool(item.get("fork")),
             )
             for item in data
-            if isinstance(item, dict) and not item.get("private") and "html_url" in item
+            if isinstance(item, dict) and "html_url" in item
         ]
         if len(data) < REPOS_PER_PAGE:
             break
