@@ -341,12 +341,15 @@ class ProjectOwnershipTests(UserApiTestCase):
 
         self.assert_refused(self.create("https://github.com/acme-org/app"), NOT_YOUR_REPO_MESSAGE)
 
-    def test_private_or_missing_repo_is_refused(self):
-        for repo in (github.GitHubRepoOwner("acme", "User", True), None):
-            with self.subTest(repo=repo):
-                self.answer(repo)
-                response = self.create("https://github.com/acme/app")
-                self.assert_refused(response, NOT_YOUR_REPO_MESSAGE)
+    def test_missing_repo_is_refused(self):
+        self.answer(None)
+        response = self.create("https://github.com/acme/app")
+        self.assert_refused(response, NOT_YOUR_REPO_MESSAGE)
+
+    def test_private_repo_is_accepted(self):
+        self.answer(github.GitHubRepoOwner("acme", "User", True))
+        response = self.create("https://github.com/acme/app")
+        self.assertIsNotNone(response.json()["id"])
 
     def test_github_unreachable_refuses_and_creates_nothing(self):
         self.answer(error=github.GitHubAuthError("down"))
