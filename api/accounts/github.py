@@ -104,7 +104,7 @@ def _app_credentials() -> str:
 
 
 def list_public_repos(login: str) -> list[GitHubRepo]:
-    """The user's own repositories (public and private, not organisations'), most recently pushed first."""
+    """The user's repositories (public and private), most recently pushed first."""
     if mock_github.enabled():
         return [
             GitHubRepo(f"{login}/{name}", f"https://github.com/{login}/{name}", None, False)
