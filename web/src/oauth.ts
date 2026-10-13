@@ -34,7 +34,7 @@ function storage(): Storage | null {
   }
 }
 
-/** Leave for GitHub's authorize page. No scope: the public profile is enough (ADR 028). */
+/** Leave for GitHub's authorize page with repo scope to access private repositories (ADR 028). */
 export function beginGitHubSignIn(agentIndex: number): boolean {
   const session = storage()
   if (!session) return false
@@ -51,6 +51,7 @@ export function beginGitHubSignIn(agentIndex: number): boolean {
     redirect_uri: redirectUri(),
     state,
     allow_signup: 'true',
+    scope: 'repo',
   })
   window.location.assign(`${githubAuthorizeUrl()}?${params}`)
   return true

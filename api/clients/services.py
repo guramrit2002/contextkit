@@ -19,7 +19,7 @@ DUPLICATE_NAME_MESSAGE = (
     "This project already has a key named {name}. Rotate it, or choose another name."
 )
 OTHER_OWNER_MESSAGE = "This repository is registered to another account."
-NOT_YOUR_REPO_MESSAGE = "You can only create keys for public repositories you own on GitHub."
+NOT_YOUR_REPO_MESSAGE = "You can only create keys for repositories you own on GitHub."
 GITHUB_UNAVAILABLE_MESSAGE = "Could not check the repository on GitHub. Try again."
 
 
@@ -74,7 +74,7 @@ def _not_yours() -> ValidationError:
 
 def ensure_owns_on_github(user, project_id: str) -> None:
     """
-    The user must own the repository on GitHub, and it must be public (ADR 031).
+    The user must own the repository on GitHub (public or private, ADR 031).
 
     Fails closed: anything that can't be proven, including a non-GitHub project, an unlinked
     account, GitHub sign-in not configured or GitHub unreachable, refuses the key.
@@ -91,7 +91,7 @@ def ensure_owns_on_github(user, project_id: str) -> None:
     except github.GitHubAuthError as exc:
         raise ValidationError({"project_id": [GITHUB_UNAVAILABLE_MESSAGE]}) from exc
     # An organisation's login never equals a user's, so organisation repos are refused too.
-    if repo is None or repo.private or repo.login.lower() != identity.login.lower():
+    if repo is None or repo.login.lower() != identity.login.lower():
         raise _not_yours()
 
 
