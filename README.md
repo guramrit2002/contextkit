@@ -132,6 +132,12 @@ A `CLAUDE.md` file works great for small solo projects or one-off tasks. context
 
 ---
 
+## Feedback
+
+contextkit is in early development. [Share your feedback](https://forms.gle/agpPhLVX4zFRNSwf9) to help shape what comes next.
+
+---
+
 ## Architecture
 
 - **MCP server:** FastMCP, thin transport layer only.
